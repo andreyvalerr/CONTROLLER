@@ -1,0 +1,25 @@
+# Виртуальные окружения
+venv/
+env/
+.venv/
+
+# Python кэш
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE файлы
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Логи и временные файлы
+*.log
+*.tmp
+.DS_Store
+
+# Конфигурационные файлы с паролями
+config.ini
+secrets.json 
