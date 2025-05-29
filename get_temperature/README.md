@@ -109,7 +109,7 @@ if current_temp and current_temp > 55:
 import simple_api
 
 # Запуск фонового мониторинга
-simple_api.start_temperature_monitoring("192.168.0.91", update_interval=1.0)
+simple_api.start_temperature_monitoring("192.168.0.127", update_interval=1.0)
 
 # Получение данных в любое время
 temp = simple_api.get_current_temperature()
@@ -156,7 +156,7 @@ with TemperatureAPI() as temp_api:
 ## 🔧 Конфигурация
 
 По умолчанию:
-- **IP майнера**: 192.168.0.91
+- **IP майнера**: 192.168.0.127
 - **Порт**: 4433
 - **Логин/пароль**: super/super
 - **Интервал**: 1.0 секунда

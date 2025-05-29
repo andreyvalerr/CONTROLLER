@@ -11,8 +11,8 @@ from datetime import datetime
 from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass
 
-from whatsminer_transport import WhatsminerTCP
-from whatsminer_interface import WhatsminerAPIv3
+from .whatsminer_transport import WhatsminerTCP
+from .whatsminer_interface import WhatsminerAPIv3
 
 
 @dataclass
@@ -232,7 +232,7 @@ class SimpleTemperatureMonitor:
 class TemperatureController:
     """Простой контроллер температуры для интеграции"""
     
-    def __init__(self, ip_address: str = "192.168.0.91", update_interval: float = 1.0):
+    def __init__(self, ip_address: str = "192.168.0.127", update_interval: float = 1.0):
         self.monitor = SimpleTemperatureMonitor(ip_address, update_interval=update_interval)
         self.monitor.start_monitoring()
     
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     def on_error(error: str):
         print(f"❌ ОШИБКА: {error}")
     
-    monitor = SimpleTemperatureMonitor("192.168.0.91", update_interval=2.0)
+    monitor = SimpleTemperatureMonitor("192.168.0.127", update_interval=2.0)
     monitor.add_data_callback(on_data)
     monitor.add_error_callback(on_error)
     

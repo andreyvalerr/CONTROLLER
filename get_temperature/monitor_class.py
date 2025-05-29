@@ -11,7 +11,7 @@ import sys
 class TemperatureMonitorApp:
     """Приложение для мониторинга температуры"""
     
-    def __init__(self, ip_address="192.168.0.91", update_interval=1.0):
+    def __init__(self, ip_address="192.168.0.127", update_interval=1.0):
         self.api = TemperatureAPI(ip_address, update_interval)
         self.running = False
         

@@ -26,7 +26,7 @@ def main():
     
     # Запуск мониторинга
     print('🔄 Запуск мониторинга...')
-    if simple_api.start_temperature_monitoring("192.168.0.91", update_interval=1.0):
+    if simple_api.start_temperature_monitoring("192.168.0.127", update_interval=1.0):
         print('✅ Мониторинг запущен успешно')
         print('📊 Нажмите Ctrl+C для остановки')
         print('-' * 50)

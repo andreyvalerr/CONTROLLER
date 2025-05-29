@@ -7,14 +7,14 @@
 import time
 import threading
 from typing import Optional
-from simple_monitor import SimpleTemperatureMonitor, TemperatureData
+from .simple_monitor import SimpleTemperatureMonitor, TemperatureData
 
 # Глобальный экземпляр монитора
 _global_monitor = None
 _monitor_lock = threading.Lock()
 
 
-def start_temperature_monitoring(ip_address: str = "192.168.0.91", 
+def start_temperature_monitoring(ip_address: str = "192.168.0.127", 
                                 update_interval: float = 1.0) -> bool:
     """
     Запуск глобального мониторинга температуры
@@ -150,7 +150,7 @@ class TemperatureAPI:
     Удобен для использования в контроллере клапанов
     """
     
-    def __init__(self, ip_address: str = "192.168.0.91", update_interval: float = 1.0):
+    def __init__(self, ip_address: str = "192.168.0.127", update_interval: float = 1.0):
         self.ip_address = ip_address
         self.update_interval = update_interval
         self.monitor = None
@@ -221,7 +221,7 @@ class ValveController:
     Пример контроллера клапанов с обратной связью по температуре
     """
     
-    def __init__(self, target_temperature: float = 50.0, ip_address: str = "192.168.0.91"):
+    def __init__(self, target_temperature: float = 50.0, ip_address: str = "192.168.0.127"):
         self.target_temperature = target_temperature
         self.temp_api = TemperatureAPI(ip_address, update_interval=1.0)
         self.temp_api.start()

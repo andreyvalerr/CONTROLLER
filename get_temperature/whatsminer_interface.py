@@ -6,8 +6,8 @@
 
 import json
 import hashlib
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
+from Cryptodome.Cipher import AES
+from Cryptodome.Util.Padding import pad, unpad
 
 
 class WhatsminerAPIv3:
