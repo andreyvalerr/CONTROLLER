@@ -11,7 +11,7 @@ from .data_models import TemperatureData, SystemStatus, SystemSettings, SystemDa
 class SharedSystemState:
     """
     Потокобезопасное хранилище состояния системы
-    Используется для обмена данными между GUI, API и контроллером
+    Используется для обмена данными между GUI и контроллером
     """
     
     def __init__(self):

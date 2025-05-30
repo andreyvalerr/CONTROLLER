@@ -86,7 +86,7 @@ class SystemData:
     settings: SystemSettings
     
     def to_json(self) -> str:
-        """Преобразование в JSON для API"""
+        """Преобразование в JSON"""
         return json.dumps({
             'temperature': self.temperature.to_dict(),
             'status': self.status.to_dict(),
