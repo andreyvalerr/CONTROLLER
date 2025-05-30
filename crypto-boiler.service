@@ -1,20 +1,22 @@
 [Unit]
-Description=Crypto Boiler Temperature Controller
-After=network.target
-Wants=network.target
+Description=Crypto Boiler Temperature Controller with GUI
+After=multi-user.target
+Wants=multi-user.target
 
 [Service]
 Type=simple
 User=user
 Group=user
 WorkingDirectory=/home/user/CONTROLLER
-ExecStart=/usr/bin/python3 /home/user/CONTROLLER/start_system.py
+ExecStart=/usr/bin/python3 /home/user/CONTROLLER/start_system_with_gui.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
-# Переменные окружения (при необходимости)
+# Переменные окружения для GUI и системы
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=PYTHONPATH=/home/user/CONTROLLER
 Environment=GPIO_PIN=17
 Environment=ASIC_IP=192.168.0.127
