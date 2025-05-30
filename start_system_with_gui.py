@@ -7,7 +7,6 @@ import signal
 import sys
 import threading
 import time
-from valve_control.valve_controller import ValveController
 from core.api_server import api_server
 from core.shared_state import system_state
 
@@ -19,11 +18,19 @@ except ImportError:
     GUI_ENABLED = False
     print("⚠️ GUI недоступен (отсутствует Kivy)")
 
+# Импорт температурного API напрямую
+try:
+    from get_temperature import get_current_temperature, TemperatureAPI
+    TEMPERATURE_API_AVAILABLE = True
+except ImportError:
+    TEMPERATURE_API_AVAILABLE = False
+    print("⚠️ API температуры недоступен")
+
 class SystemManager:
     """Менеджер всей системы"""
     
     def __init__(self):
-        self.valve_controller = None
+        self.temperature_api = None
         self.gui_app = None
         self.running = False
         
@@ -37,66 +44,46 @@ class SystemManager:
         self.stop()
         sys.exit(0)
     
-    def _valve_controller_worker(self):
-        """Рабочий поток контроллера клапанов"""
+    def _setup_temperature_monitoring(self):
+        """Настройка мониторинга температуры асика"""
+        if not TEMPERATURE_API_AVAILABLE:
+            print("❌ API температуры недоступен")
+            return False
+            
         try:
-            # Создание и запуск контроллера
-            self.valve_controller = ValveController()
+            # Создание температурного API
+            self.temperature_api = TemperatureAPI(
+                ip_address="192.168.0.127",  # IP асика
+                update_interval=1.0
+            )
             
-            # Подключение к общему состоянию системы
-            self._setup_valve_controller_integration()
-            
-            if self.valve_controller.start():
-                print("✅ Контроллер клапанов запущен")
-                self.valve_controller.run_forever()
+            if self.temperature_api.start():
+                print("✅ Мониторинг температуры асика запущен")
+                
+                # Запуск обновления данных в shared_state
+                def temperature_update_worker():
+                    while self.running:
+                        try:
+                            current_temp = self.temperature_api.get_temperature()
+                            if current_temp is not None:
+                                system_state.update_temperature(current_temp, "whatsminer")
+                            else:
+                                print("⚠️ Не удалось получить температуру асика")
+                        except Exception as e:
+                            print(f"Ошибка получения температуры: {e}")
+                        
+                        time.sleep(1.0)
+                
+                temp_thread = threading.Thread(target=temperature_update_worker, daemon=True)
+                temp_thread.start()
+                return True
             else:
-                print("❌ Ошибка запуска контроллера клапанов")
-                system_state.set_error("Ошибка запуска контроллера клапанов")
+                print("❌ Не удалось запустить мониторинг температуры")
+                return False
                 
         except Exception as e:
-            print(f"❌ Критическая ошибка контроллера клапанов: {e}")
-            system_state.set_error(f"Критическая ошибка: {e}")
-    
-    def _setup_valve_controller_integration(self):
-        """Настройка интеграции контроллера клапанов с общим состоянием"""
-        if not self.valve_controller:
-            return
-        
-        # Подписка на изменения настроек из GUI/API
-        def on_settings_update(system_data):
-            try:
-                settings = system_data.settings
-                # Обновляем настройки в контроллере клапанов
-                if hasattr(self.valve_controller, 'temperature_regulator'):
-                    regulator = self.valve_controller.temperature_regulator
-                    regulator.config.max_temperature = settings.max_temperature
-                    regulator.config.min_temperature = settings.min_temperature
-                    regulator.config.hysteresis = settings.hysteresis
-                    print(f"📝 Настройки контроллера обновлены: {settings.max_temperature}°C")
-            except Exception as e:
-                print(f"Ошибка обновления настроек контроллера: {e}")
-        
-        system_state.subscribe(on_settings_update)
-        
-        # Обновление данных в shared_state из контроллера
-        def update_system_state():
-            while self.running:
-                try:
-                    if hasattr(self.valve_controller, 'current_temperature'):
-                        temp = getattr(self.valve_controller, 'current_temperature', 0.0)
-                        system_state.update_temperature(temp, "whatsminer")
-                    
-                    if hasattr(self.valve_controller, 'relay_controller'):
-                        valve_state = getattr(self.valve_controller.relay_controller, 'is_on', False)
-                        system_state.update_valve_state(valve_state)
-                        
-                except Exception as e:
-                    print(f"Ошибка синхронизации состояния: {e}")
-                
-                time.sleep(1.0)
-        
-        update_thread = threading.Thread(target=update_system_state, daemon=True)
-        update_thread.start()
+            print(f"❌ Ошибка настройки мониторинга температуры: {e}")
+            return False
     
     def start(self):
         """Запуск всей системы"""
@@ -113,16 +100,10 @@ class SystemManager:
             print("❌ Ошибка запуска API сервера")
             return False
         
-        # Настройка удаленного сервера (если нужно)
-        # api_server.set_remote_server("https://your-remote-server.com", 30)
-        
-        # 2. Запуск контроллера клапанов в отдельном потоке
-        print("🔧 Запуск контроллера клапанов...")
-        controller_thread = threading.Thread(
-            target=self._valve_controller_worker,
-            daemon=True
-        )
-        controller_thread.start()
+        # 2. Настройка мониторинга температуры асика
+        print("🌡️ Настройка мониторинга температуры асика...")
+        if not self._setup_temperature_monitoring():
+            print("⚠️ Продолжаем без мониторинга температуры")
         
         # Ждем немного для инициализации
         time.sleep(2)
@@ -133,12 +114,10 @@ class SystemManager:
             try:
                 self.gui_app = TemperatureControllerGUI()
                 
-                # Имитация данных для демонстрации
-                self._setup_demo_data()
-                
                 print("✅ Система полностью запущена!")
                 print("📊 GUI интерфейс активен")
                 print("🌐 API доступен на http://localhost:5000/api/status")
+                print("🌡️ Отображается реальная температура асика")
                 print("\nЗакройте окно GUI для остановки системы")
                 
                 # Запуск GUI в главном потоке
@@ -150,6 +129,7 @@ class SystemManager:
         else:
             print("✅ Система запущена без GUI")
             print("🌐 API доступен на http://localhost:5000/api/status")
+            print("🌡️ Мониторинг температуры асика активен")
             print("Нажмите Ctrl+C для остановки")
             
             # Простое ожидание в случае отсутствия GUI
@@ -161,21 +141,6 @@ class SystemManager:
         
         return True
     
-    def _setup_demo_data(self):
-        """Настройка демонстрационных данных"""
-        # Имитация получения температуры
-        def demo_temperature_update():
-            import random
-            while self.running:
-                # Симуляция колебаний температуры
-                base_temp = 51.5
-                current_temp = base_temp + random.uniform(-1.0, 2.0)
-                system_state.update_temperature(current_temp, "demo")
-                time.sleep(2)
-        
-        demo_thread = threading.Thread(target=demo_temperature_update, daemon=True)
-        demo_thread.start()
-    
     def stop(self):
         """Остановка системы"""
         print("🛑 Остановка системы...")
@@ -184,9 +149,9 @@ class SystemManager:
         # Остановка API сервера
         api_server.stop()
         
-        # Остановка контроллера клапанов
-        if self.valve_controller:
-            self.valve_controller.stop()
+        # Остановка мониторинга температуры
+        if self.temperature_api:
+            self.temperature_api.stop()
         
         # Остановка GUI
         if self.gui_app:
