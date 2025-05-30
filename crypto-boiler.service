@@ -18,8 +18,8 @@ StandardError=journal
 Environment=PYTHONPATH=/home/user/CONTROLLER
 Environment=GPIO_PIN=17
 Environment=ASIC_IP=192.168.0.127
-Environment=MAX_TEMP=40.0
-Environment=MIN_TEMP=35.0
+Environment=MAX_TEMP=52.0
+Environment=MIN_TEMP=51.9
 
 [Install]
 WantedBy=multi-user.target 
