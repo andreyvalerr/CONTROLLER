@@ -19,7 +19,7 @@ except ImportError:
 
 # Импорт температурного API напрямую
 try:
-    from get_temperature import get_current_temperature, TemperatureAPI
+    from get_temperature_from_asic import get_current_temperature, TemperatureAPI
     TEMPERATURE_API_AVAILABLE = True
 except ImportError:
     TEMPERATURE_API_AVAILABLE = False

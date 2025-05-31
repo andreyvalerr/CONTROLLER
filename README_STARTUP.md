@@ -134,7 +134,7 @@ sudo usermod -a -G gpio $USER
 ```bash
 cd CONTROLLER
 python3 -c "
-from get_temperature.simple_monitor import SimpleTemperatureMonitor
+from get_temperature_from_asic.simple_monitor import SimpleTemperatureMonitor
 monitor = SimpleTemperatureMonitor('192.168.0.127')
 data = monitor.get_temperature_reading()
 print(f'Температура: {data.liquid_temperature}°C' if data and data.liquid_temperature else 'Ошибка подключения')

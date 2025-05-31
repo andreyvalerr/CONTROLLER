@@ -11,8 +11,8 @@ from datetime import datetime
 from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass
 
-from .whatsminer_transport import WhatsminerTCP
-from .whatsminer_interface import WhatsminerAPIv3
+from .whatsminer_interface.whatsminer_transport import WhatsminerTCP
+from .whatsminer_interface.whatsminer_interface import WhatsminerAPIv3
 
 
 @dataclass
@@ -26,8 +26,8 @@ class TemperatureData:
     error_message: Optional[str] = None
 
 
-class SimpleTemperatureMonitor:
-    """Упрощенный монитор температуры без зашифрованных запросов"""
+class TemperatureMonitor:
+    """Монитор температуры для работы с Whatsminer без зашифрованных запросов"""
     
     def __init__(self, ip_address: str, account: str = "super", password: str = "super", 
                  update_interval: float = 1.0):
@@ -233,7 +233,7 @@ class TemperatureController:
     """Простой контроллер температуры для интеграции"""
     
     def __init__(self, ip_address: str = "192.168.0.127", update_interval: float = 1.0):
-        self.monitor = SimpleTemperatureMonitor(ip_address, update_interval=update_interval)
+        self.monitor = TemperatureMonitor(ip_address, update_interval=update_interval)
         self.monitor.start_monitoring()
     
     def get_temperature(self) -> Optional[float]:
@@ -256,7 +256,7 @@ class TemperatureController:
 
 
 if __name__ == "__main__":
-    # Тест упрощенного монитора
+    # Тест монитора температуры
     def on_data(data: TemperatureData):
         timestamp = data.timestamp.strftime("%H:%M:%S") if data.timestamp else "N/A"
         if data.liquid_temperature is not None:
@@ -267,11 +267,11 @@ if __name__ == "__main__":
     def on_error(error: str):
         print(f"❌ ОШИБКА: {error}")
     
-    monitor = SimpleTemperatureMonitor("192.168.0.127", update_interval=2.0)
+    monitor = TemperatureMonitor("192.168.0.127", update_interval=2.0)
     monitor.add_data_callback(on_data)
     monitor.add_error_callback(on_error)
     
-    print("🌡️ Запуск упрощенного мониторинга...")
+    print("🌡️ Запуск мониторинга температуры...")
     monitor.start_monitoring()
     
     try:

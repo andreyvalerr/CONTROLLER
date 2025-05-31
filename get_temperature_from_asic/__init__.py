@@ -13,7 +13,7 @@ from .api_interface import (
     is_temperature_monitoring_active
 )
 
-from .temperature_monitor import TemperatureMonitor, TemperatureData
+from .simple_monitor import TemperatureMonitor, TemperatureData
 from .config import TemperatureConfig
 
 __version__ = "1.0.0"

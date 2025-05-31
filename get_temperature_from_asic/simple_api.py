@@ -7,7 +7,7 @@
 import time
 import threading
 from typing import Optional
-from .simple_monitor import SimpleTemperatureMonitor, TemperatureData
+from .simple_monitor import TemperatureMonitor, TemperatureData
 
 # Глобальный экземпляр монитора
 _global_monitor = None
@@ -32,7 +32,7 @@ def start_temperature_monitoring(ip_address: str = "192.168.0.127",
         if _global_monitor is not None:
             return True  # Уже запущен
         
-        _global_monitor = SimpleTemperatureMonitor(ip_address, update_interval=update_interval)
+        _global_monitor = TemperatureMonitor(ip_address, update_interval=update_interval)
         return _global_monitor.start_monitoring()
 
 
@@ -158,7 +158,7 @@ class TemperatureAPI:
     def start(self) -> bool:
         """Запуск мониторинга"""
         if self.monitor is None:
-            self.monitor = SimpleTemperatureMonitor(
+            self.monitor = TemperatureMonitor(
                 self.ip_address, 
                 update_interval=self.update_interval
             )

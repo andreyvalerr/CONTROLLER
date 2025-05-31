@@ -3,8 +3,8 @@
 Простой тест API Whatsminer на основе документации
 """
 
-from whatsminer_transport import WhatsminerTCP
-from whatsminer_interface import WhatsminerAPIv3
+from CONTROLLER.get_temperature.whatsminer_interface.whatsminer_transport import WhatsminerTCP
+from CONTROLLER.get_temperature.whatsminer_interface.whatsminer_interface import WhatsminerAPIv3
 
 def get_liquid_temp_simple(ip):
     """Простое получение температуры жидкости"""
