@@ -80,11 +80,12 @@ echo $DISPLAY
 
 ### Проверка статуса:
 ```python
-# Через core модуль
-from core.shared_state import system_state
-status = system_state.get_current_data()
-print(f"Температура: {status.temperature}°C")
-print(f"Клапан: {'ОТКРЫТ' if status.valve_state else 'ЗАКРЫТ'}")
+# Через data_manager (новый API)
+from data_manager import get_temperature_data, get_system_status
+temperature = get_temperature_data()
+status = get_system_status()
+print(f"Температура: {temperature}°C")
+print(f"Статус системы: {status}")
 ```
 
 ### Просмотр логов:

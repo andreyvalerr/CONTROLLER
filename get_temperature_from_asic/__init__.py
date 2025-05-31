@@ -10,7 +10,8 @@ from .api_interface import (
     get_temperature_status,
     start_temperature_monitoring,
     stop_temperature_monitoring,
-    is_temperature_monitoring_active
+    is_temperature_monitoring_active,
+    get_all_temperature_data
 )
 
 from .simple_monitor import TemperatureMonitor, TemperatureData
@@ -28,6 +29,7 @@ __all__ = [
     "start_temperature_monitoring",
     "stop_temperature_monitoring",
     "is_temperature_monitoring_active",
+    "get_all_temperature_data",
     
     # Основные классы
     "TemperatureMonitor",
