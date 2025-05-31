@@ -7,7 +7,6 @@
 from .relay_controller import RelayController
 from .valve_controller import ValveController, ValveControllerConfig
 from .temperature_regulator import TemperatureRegulator, RegulatorConfig
-from .manual_control import manual_valve_control
 
 __version__ = "1.0.0"
 __author__ = "Система контроллера температуры криптокотла"
@@ -19,8 +18,5 @@ __all__ = [
     "ValveController", 
     "ValveControllerConfig",
     "TemperatureRegulator",
-    "RegulatorConfig",
-    
-    # Утилиты
-    "manual_valve_control",
+    "RegulatorConfig"
 ] 

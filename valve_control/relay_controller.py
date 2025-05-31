@@ -10,12 +10,7 @@ import atexit
 from typing import Optional
 from datetime import datetime, timedelta
 
-try:
-    import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
-except ImportError:
-    GPIO_AVAILABLE = False
-    print("ВНИМАНИЕ: RPi.GPIO недоступен. Работа в режиме эмуляции.")
+import RPi.GPIO as GPIO
 
 from .config import RelayConfig, DEFAULT_RELAY_CONFIG
 
@@ -62,11 +57,6 @@ class RelayController:
         Returns:
             bool: True если инициализация успешна
         """
-        if not GPIO_AVAILABLE:
-            self.logger.warning("GPIO недоступен, работа в режиме эмуляции")
-            self._is_initialized = True
-            return True
-        
         try:
             # Настройка режима GPIO
             if self.config.gpio_mode == "BCM":
@@ -119,8 +109,7 @@ class RelayController:
             return False
         
         try:
-            if GPIO_AVAILABLE:
-                GPIO.output(self.config.relay_pin, self.config.relay_on_state)
+            GPIO.output(self.config.relay_pin, self.config.relay_on_state)
             
             if not self._relay_state:  # Если реле было выключено
                 self._relay_state = True
@@ -148,8 +137,7 @@ class RelayController:
             return False
         
         try:
-            if GPIO_AVAILABLE:
-                GPIO.output(self.config.relay_pin, self.config.relay_off_state)
+            GPIO.output(self.config.relay_pin, self.config.relay_off_state)
             
             if self._relay_state:  # Если реле было включено
                 self._relay_state = False
@@ -181,16 +169,6 @@ class RelayController:
         else:
             return self.turn_on()
     
-    def emergency_off(self) -> bool:
-        """
-        Аварийное выключение реле
-        
-        Returns:
-            bool: True если операция успешна
-        """
-        self.logger.warning("АВАРИЙНОЕ ВЫКЛЮЧЕНИЕ РЕЛЕ")
-        return self.turn_off()
-    
     def test_relay(self, duration: float = 2.0) -> bool:
         """
         Тестирование реле (включение на заданное время)
@@ -199,18 +177,18 @@ class RelayController:
             duration: Длительность теста в секундах
             
         Returns:
-            bool: True если тест прошел успешно
+            bool: True если тест успешен
         """
         if not self._is_initialized:
-            self.logger.error("GPIO не инициализирован")
+            self.logger.error("GPIO не инициализирован для тестирования")
             return False
         
+        self.logger.info(f"Начинаем тест реле на {duration} секунд")
+        
+        # Сохранение текущего состояния
+        original_state = self._relay_state
+        
         try:
-            self.logger.info(f"Начало теста реле на {duration} секунд")
-            
-            # Сохранение текущего состояния
-            original_state = self._relay_state
-            
             # Включение реле
             if not self.turn_on():
                 return False
@@ -218,17 +196,19 @@ class RelayController:
             # Ожидание
             time.sleep(duration)
             
-            # Восстановление исходного состояния
+            # Возврат к исходному состоянию
             if original_state:
-                result = self.turn_on()
+                return self.turn_on()
             else:
-                result = self.turn_off()
-            
-            self.logger.info("Тест реле завершен")
-            return result
-            
+                return self.turn_off()
+                
         except Exception as e:
-            self.logger.error(f"Ошибка теста реле: {e}")
+            self.logger.error(f"Ошибка во время тестирования реле: {e}")
+            # Попытка вернуть исходное состояние
+            if original_state:
+                self.turn_on()
+            else:
+                self.turn_off()
             return False
     
     def get_statistics(self) -> dict:
@@ -242,22 +222,19 @@ class RelayController:
         uptime = current_time - self._start_time
         
         # Расчет текущего времени работы
-        current_on_time = self._total_on_time
+        total_on_time = self._total_on_time
         if self._relay_state and self._last_on_time:
-            current_on_time += current_time - self._last_on_time
-        
-        # Расчет процента времени работы
-        on_time_percentage = (current_on_time.total_seconds() / uptime.total_seconds() * 100) if uptime.total_seconds() > 0 else 0
+            total_on_time += current_time - self._last_on_time
         
         return {
             "relay_state": self._relay_state,
             "switch_count": self._switch_count,
-            "total_on_time_seconds": current_on_time.total_seconds(),
             "uptime_seconds": uptime.total_seconds(),
-            "on_time_percentage": round(on_time_percentage, 2),
+            "total_on_time_seconds": total_on_time.total_seconds(),
+            "on_time_percentage": (total_on_time.total_seconds() / uptime.total_seconds() * 100) if uptime.total_seconds() > 0 else 0,
             "last_switch_time": self._last_switch_time.isoformat() if self._last_switch_time else None,
             "gpio_pin": self.config.relay_pin,
-            "is_initialized": self._is_initialized
+            "gpio_mode": self.config.gpio_mode
         }
     
     def get_last_switch_time(self) -> Optional[datetime]:
@@ -270,31 +247,26 @@ class RelayController:
     
     def cleanup(self):
         """Очистка ресурсов GPIO"""
-        if self._is_initialized and GPIO_AVAILABLE:
+        if self._is_initialized:
             try:
                 # Выключение реле перед очисткой
                 GPIO.output(self.config.relay_pin, self.config.relay_off_state)
-                
                 # Очистка GPIO
                 GPIO.cleanup()
-                
                 self.logger.info("GPIO очищен")
-                
             except Exception as e:
                 self.logger.error(f"Ошибка очистки GPIO: {e}")
-            
             finally:
                 self._is_initialized = False
     
     def __enter__(self):
-        """Контекстный менеджер - вход"""
+        """Поддержка контекстного менеджера"""
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Контекстный менеджер - выход"""
+        """Выход из контекстного менеджера"""
         self.cleanup()
     
     def __del__(self):
         """Деструктор"""
-        if hasattr(self, '_is_initialized') and self._is_initialized:
-            self.cleanup() 
+        self.cleanup() 
