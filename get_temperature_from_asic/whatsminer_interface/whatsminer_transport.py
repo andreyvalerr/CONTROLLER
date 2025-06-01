@@ -89,25 +89,17 @@ class WhatsminerTCP:
                 
             response_length = struct.unpack('<I', response_header)[0]
             
+            # Проверяем разумность длины ответа
+            if response_length > 100000:  # Больше 100KB - подозрительно
+                print(f"⚠️ ПОДОЗРИТЕЛЬНО: Длина ответа {response_length} байт слишком большая!")
+                return None  # Прерываем обработку неправильных заголовков
+            
             # Получение данных ответа
             response_data = self._receive_exact(response_length)
             if not response_data:
                 return None
             
-            # Парсинг JSON ответа
-            try:
-                # Сначала пробуем как обычный JSON
-                response_json = json.loads(response_data.decode())
-                return response_json
-            except json.JSONDecodeError:
-                # Если не получилось, пробуем расшифровать
-                if api_instance and hasattr(api_instance, 'decrypt_response'):
-                    decrypted_response = api_instance.decrypt_response(response_data)
-                    if decrypted_response:
-                        return decrypted_response
-                
-                # Возможно данные зашифрованы, возвращаем как есть
-                return {"encrypted_data": response_data}
+            return self._parse_json_response(response_data, api_instance)
                 
         except socket.timeout:
             print("❌ Таймаут при отправке/получении данных")
@@ -149,6 +141,110 @@ class WhatsminerTCP:
         elapsed = time.time() - start_time
         print(f"✅ Получено {len(data)} байт за {elapsed:.1f}с")
         return data
+    
+    def _receive_until_complete_json(self, initial_data: bytes) -> Optional[bytes]:
+        """
+        Получение JSON данных когда нет заголовка длины
+        
+        Args:
+            initial_data: Начальные 4 байта данных
+            
+        Returns:
+            bytes: Полные JSON данные или None при ошибке
+        """
+        data = initial_data
+        brace_count = 0
+        in_string = False
+        escape_next = False
+        
+        # Анализируем уже полученные данные
+        for byte in data:
+            char = chr(byte) if 32 <= byte <= 126 else ''
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\':
+                escape_next = True
+                continue
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+        
+        # Читаем дополнительные данные пока не получим полный JSON
+        timeout_start = time.time()
+        while brace_count > 0 and (time.time() - timeout_start) < 5:
+            try:
+                chunk = self.socket.recv(1024)
+                if not chunk:
+                    break
+                
+                data += chunk
+                
+                # Анализируем новые данные
+                for byte in chunk:
+                    char = chr(byte) if 32 <= byte <= 126 else ''
+                    if escape_next:
+                        escape_next = False
+                        continue
+                    if char == '\\':
+                        escape_next = True
+                        continue
+                    if char == '"' and not escape_next:
+                        in_string = not in_string
+                        continue
+                    if not in_string:
+                        if char == '{':
+                            brace_count += 1
+                        elif char == '}':
+                            brace_count -= 1
+                        
+                        if brace_count == 0:
+                            # Найден конец JSON
+                            print(f"✅ Получен полный JSON: {len(data)} байт")
+                            return data
+                        
+            except socket.timeout:
+                break
+            except Exception as e:
+                print(f"❌ Ошибка при чтении JSON: {e}")
+                break
+        
+        if brace_count == 0:
+            print(f"✅ Получен полный JSON: {len(data)} байт")
+            return data
+        else:
+            print(f"❌ Неполный JSON: ожидается еще {brace_count} закрывающих скобок")
+            return None
+    
+    def _parse_json_response(self, response_data: bytes, api_instance=None) -> Optional[Dict[Any, Any]]:
+        """
+        Парсинг JSON ответа
+        
+        Args:
+            response_data: Данные ответа
+            api_instance: Экземпляр API для расшифровки
+            
+        Returns:
+            dict: Распарсенный ответ или None
+        """
+        try:
+            # Сначала пробуем как обычный JSON
+            response_json = json.loads(response_data.decode())
+            return response_json
+        except json.JSONDecodeError:
+            # Если не получилось, пробуем расшифровать
+            if api_instance and hasattr(api_instance, 'decrypt_response'):
+                decrypted_response = api_instance.decrypt_response(response_data)
+                if decrypted_response:
+                    return decrypted_response
+            
+            # Возможно данные зашифрованы, возвращаем как есть
+            return {"encrypted_data": response_data}
     
     def close(self):
         """Закрытие соединения"""
