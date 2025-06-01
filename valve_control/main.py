@@ -15,6 +15,16 @@ from .config import (
     RelayConfig, TemperatureConfig, MonitoringConfig, SafetyConfig,
     load_config_from_env, validate_config
 )
+from .data_manager_integration import (
+    get_temperature_for_valve_controller,
+    start_temperature_data_provider,
+    stop_temperature_data_provider,
+    get_temperature_provider_statistics,
+    is_temperature_provider_running,
+    get_temperature_settings_for_valve_controller,
+    set_temperature_settings_from_valve_controller,
+    is_temperature_settings_available
+)
 
 def load_config_from_file(config_file: str) -> Optional[ValveControllerConfig]:
     """
@@ -120,6 +130,19 @@ def print_status(controller: ValveController):
     else:
         print("Температура: недоступна")
     
+    # Статистика поставщика температурных данных
+    temp_provider_stats = get_temperature_provider_statistics()
+    if temp_provider_stats.get('is_running'):
+        print(f"Data Manager интеграция: активна")
+        print(f"Обновлений температуры: {temp_provider_stats.get('successful_updates', 0)}")
+        print(f"Успешность: {temp_provider_stats.get('success_rate', 0):.1f}%")
+        if temp_provider_stats.get('data_fresh'):
+            print(f"Данные: свежие")
+        else:
+            print(f"Данные: устаревшие")
+    else:
+        print("Data Manager интеграция: неактивна")
+    
     # Охлаждение
     regulator_status = status.get('regulator', {})
     cooling_active = regulator_status.get('cooling_active', False)
@@ -142,6 +165,36 @@ def print_status(controller: ValveController):
     print(f"IP асика: {config_status.get('asic_ip')}")
     
     print("==================================")
+
+def initialize_temperature_settings_from_data_manager() -> bool:
+    """
+    Проверка наличия настроек температуры в data_manager
+    ТРЕБУЕТ обязательного наличия настроек - НЕ создает значения по умолчанию
+    
+    Returns:
+        bool: True если настройки доступны в data_manager
+    """
+    try:
+        print("Проверка настроек температуры в data_manager...")
+        
+        if is_temperature_settings_available():
+            settings = get_temperature_settings_for_valve_controller()
+            if settings:
+                print(f"✅ Настройки температуры найдены в data_manager: "
+                      f"{settings.get('min_temperature')}°C - {settings.get('max_temperature')}°C")
+                return True
+            else:
+                print("❌ ОШИБКА: Настройки температуры повреждены в data_manager")
+                return False
+        else:
+            print("❌ КРИТИЧЕСКАЯ ОШИБКА: Настройки температуры отсутствуют в data_manager")
+            print("❌ Модуль valve_control не может работать без настроек температуры")
+            print("❌ Установите настройки температуры в data_manager перед запуском")
+            return False
+            
+    except Exception as e:
+        print(f"❌ КРИТИЧЕСКАЯ ОШИБКА проверки настроек температуры: {e}")
+        return False
 
 def main():
     """Главная функция"""
@@ -273,9 +326,39 @@ def main():
     
     # Создание контроллера
     try:
-        controller = ValveController(config)
+        # Запуск поставщика температурных данных
+        print("Запуск интеграции с data_manager...")
+        if not start_temperature_data_provider(update_interval=1.0):
+            print("❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось запустить интеграцию с data_manager")
+            print("❌ Модуль valve_control не может работать без data_manager")
+            return 1
+        else:
+            print("✅ Интеграция с data_manager запущена успешно")
+            
+            # Проверка настроек температуры в data_manager
+            if not initialize_temperature_settings_from_data_manager():
+                print("❌ КРИТИЧЕСКАЯ ОШИБКА: Настройки температуры недоступны")
+                print("❌ Завершение работы модуля")
+                stop_temperature_data_provider()
+                return 1
+        
+        controller = ValveController(
+            temperature_callback=get_temperature_for_valve_controller,
+            config=config
+        )
+        
+        # Синхронизация настроек температуры с data_manager
+        print("Синхронизация настроек температуры с data_manager...")
+        if not controller.sync_temperature_settings_with_data_manager():
+            print("❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось синхронизировать настройки температуры")
+            print("❌ Завершение работы модуля")
+            stop_temperature_data_provider()
+            return 1
+        else:
+            print("✅ Синхронизация настроек температуры завершена успешно")
     except Exception as e:
         print(f"Ошибка создания контроллера: {e}")
+        stop_temperature_data_provider()
         return 1
     
     # Показать статус и выйти
@@ -286,11 +369,13 @@ def main():
         
         print_status(controller)
         controller.stop()
+        stop_temperature_data_provider()
         return 0
     
     # Запуск контроллера
     try:
         print("Запуск контроллера клапанов...")
+        print("Получение температуры каждую секунду через data_manager")
         print("Нажмите Ctrl+C для остановки")
         
         success = controller.run_forever()
@@ -299,6 +384,9 @@ def main():
     except Exception as e:
         print(f"Ошибка выполнения: {e}")
         return 1
+    finally:
+        # Остановка поставщика данных при завершении
+        stop_temperature_data_provider()
 
 if __name__ == "__main__":
     sys.exit(main()) 

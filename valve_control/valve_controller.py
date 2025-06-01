@@ -15,6 +15,12 @@ from .config import (
     RelayConfig, TemperatureConfig, MonitoringConfig, SafetyConfig,
     load_config_from_env, validate_config
 )
+from .data_manager_integration import (
+    get_temperature_settings_for_valve_controller,
+    set_temperature_settings_from_valve_controller,
+    is_temperature_settings_available,
+    validate_data_manager_availability
+)
 
 @dataclass
 class ValveControllerConfig:
@@ -324,27 +330,125 @@ class ValveController:
     
     def update_temperature_thresholds(self, max_temp: float, min_temp: Optional[float] = None):
         """
-        Обновление порогов температуры
+        Обновление температурных порогов
         
         Args:
             max_temp: Максимальная температура
-            min_temp: Минимальная температура (если None, рассчитывается автоматически)
+            min_temp: Минимальная температура (если None, рассчитывается как max_temp - hysteresis)
         """
         if min_temp is None:
             min_temp = max_temp - self.config.temperature_config.hysteresis
+        
+        # Валидация
+        if min_temp >= max_temp:
+            self.logger.error(f"Некорректные пороги: min={min_temp} >= max={max_temp}")
+            return
         
         # Обновление конфигурации
         self.config.temperature_config.max_temperature = max_temp
         self.config.temperature_config.min_temperature = min_temp
         
-        # Обновление конфигурации регулятора
-        regulator_config = RegulatorConfig(
-            temperature_config=self.config.temperature_config,
-            safety_config=self.config.safety_config
+        # Обновление регулятора
+        self.temperature_regulator.update_config(
+            RegulatorConfig(
+                temperature_config=self.config.temperature_config,
+                safety_config=self.config.safety_config
+            )
         )
-        self.temperature_regulator.update_config(regulator_config)
         
-        self.logger.info(f"Пороги температуры обновлены: {min_temp}°C - {max_temp}°C")
+        self.logger.info(f"Температурные пороги обновлены: {min_temp}°C - {max_temp}°C")
+
+    def get_temperature_settings_from_data_manager(self) -> Optional[dict]:
+        """
+        Получение настроек температуры из data_manager
+        
+        Returns:
+            Optional[dict]: Словарь с настройками температуры или None если недоступны
+        """
+        if not validate_data_manager_availability():
+            self.logger.error("data_manager недоступен для получения настроек температуры")
+            return None
+            
+        try:
+            settings = get_temperature_settings_for_valve_controller()
+            
+            if settings is not None:
+                self.logger.info(f"Получены настройки температуры из data_manager: "
+                               f"{settings.get('min_temperature')}°C - {settings.get('max_temperature')}°C")
+            else:
+                self.logger.error("Настройки температуры отсутствуют в data_manager")
+                
+            return settings
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка получения настроек температуры из data_manager: {e}")
+            return None
+
+    def update_temperature_settings_to_data_manager(self, max_temp: float, min_temp: float) -> bool:
+        """
+        Обновление настроек температуры в data_manager
+        
+        Args:
+            max_temp: Максимальная температура
+            min_temp: Минимальная температура
+            
+        Returns:
+            bool: True если обновление успешно
+        """
+        if not validate_data_manager_availability():
+            self.logger.error("data_manager недоступен для обновления настроек температуры")
+            return False
+            
+        try:
+            result = set_temperature_settings_from_valve_controller(max_temp, min_temp)
+            
+            if result:
+                self.logger.info(f"Настройки температуры обновлены в data_manager: "
+                               f"{min_temp}°C - {max_temp}°C")
+            else:
+                self.logger.error("Не удалось обновить настройки температуры в data_manager")
+                
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления настроек температуры в data_manager: {e}")
+            return False
+
+    def sync_temperature_settings_with_data_manager(self) -> bool:
+        """
+        Синхронизация настроек температуры с data_manager
+        ТРЕБУЕТ обязательного наличия настроек в data_manager
+        
+        Returns:
+            bool: True если синхронизация успешна
+        """
+        if not validate_data_manager_availability():
+            self.logger.error("data_manager недоступен для синхронизации настроек температуры")
+            return False
+            
+        try:
+            settings = self.get_temperature_settings_from_data_manager()
+            
+            if settings is None:
+                self.logger.error("КРИТИЧЕСКАЯ ОШИБКА: Настройки температуры отсутствуют в data_manager")
+                self.logger.error("Модуль valve_control не может работать без настроек температуры")
+                return False
+            
+            # Применяем настройки из data_manager
+            max_temp = settings.get('max_temperature')
+            min_temp = settings.get('min_temperature')
+            
+            if max_temp is None or min_temp is None:
+                self.logger.error("КРИТИЧЕСКАЯ ОШИБКА: Некорректные настройки температуры в data_manager")
+                return False
+            
+            self.update_temperature_thresholds(max_temp, min_temp)
+            self.logger.info("Настройки температуры успешно синхронизированы из data_manager")
+            return True
+                
+        except Exception as e:
+            self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА синхронизации настроек температуры: {e}")
+            return False
     
     def _log_configuration(self):
         """Вывод текущей конфигурации"""

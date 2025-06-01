@@ -25,16 +25,15 @@ class RelayConfig:
 @dataclass 
 class TemperatureConfig:
     """Конфигурация температурных порогов"""
-    # Пороговые значения температуры (°C)
-    max_temperature: float = 52.0  # Максимальная температура для включения охлаждения
-    min_temperature: float = 51.9  # Минимальная температура для выключения охлаждения
+    # ПРИМЕЧАНИЕ: max_temperature и min_temperature теперь получаются из data_manager
+    # Только критические значения и служебные параметры остаются в конфигурации
     
     # Критические значения
     critical_max_temp: float = 65.0  # Критическая температура
     emergency_temp: float = 70.0     # Аварийная температура
     
-    # Гистерезис
-    hysteresis: float = 0.1  # Разница между max и min температурой
+    # Служебные параметры
+    hysteresis: float = 0.1  # Разница между max и min температурой (используется как fallback)
     
     # Таймауты
     temperature_timeout: float = 10.0  # Таймаут получения температуры (сек)
@@ -95,8 +94,6 @@ def load_config_from_env() -> tuple[RelayConfig, TemperatureConfig, MonitoringCo
     
     # Температурная конфигурация
     temp_config = TemperatureConfig(
-        max_temperature=float(os.getenv("MAX_TEMP", DEFAULT_TEMPERATURE_CONFIG.max_temperature)),
-        min_temperature=float(os.getenv("MIN_TEMP", DEFAULT_TEMPERATURE_CONFIG.min_temperature)),
         critical_max_temp=float(os.getenv("CRITICAL_TEMP", DEFAULT_TEMPERATURE_CONFIG.critical_max_temp)),
         emergency_temp=float(os.getenv("EMERGENCY_TEMP", DEFAULT_TEMPERATURE_CONFIG.emergency_temp)),
         hysteresis=float(os.getenv("TEMP_HYSTERESIS", DEFAULT_TEMPERATURE_CONFIG.hysteresis)),
@@ -143,14 +140,8 @@ def validate_config(relay_config: RelayConfig, temp_config: TemperatureConfig) -
         errors.append(f"Неверный GPIO пин: {relay_config.relay_pin}. Должен быть от 1 до 40")
     
     # Проверка температурных порогов
-    if temp_config.min_temperature >= temp_config.max_temperature:
-        errors.append(f"Минимальная температура ({temp_config.min_temperature}) должна быть меньше максимальной ({temp_config.max_temperature})")
-    
-    if temp_config.max_temperature >= temp_config.critical_max_temp:
-        errors.append(f"Максимальная температура ({temp_config.max_temperature}) должна быть меньше критической ({temp_config.critical_max_temp})")
-    
-    if temp_config.critical_max_temp >= temp_config.emergency_temp:
-        errors.append(f"Критическая температура ({temp_config.critical_max_temp}) должна быть меньше аварийной ({temp_config.emergency_temp})")
+    if temp_config.critical_max_temp <= temp_config.emergency_temp:
+        errors.append(f"Критическая температура ({temp_config.critical_max_temp}) должна быть больше аварийной ({temp_config.emergency_temp})")
     
     # Проверка интервалов
     if temp_config.control_interval <= 0:

@@ -15,6 +15,7 @@ from enum import Enum
 class DataType(Enum):
     """Типы данных в системе"""
     TEMPERATURE = "temperature"
+    TEMPERATURE_SETTINGS = "temperature_settings"  # Новый тип для настроек температуры
     VALVE_POSITION = "valve_position"
     SYSTEM_STATUS = "system_status"
     ERROR = "error"

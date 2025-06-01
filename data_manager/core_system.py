@@ -388,9 +388,72 @@ def get_temperature_data() -> Optional[float]:
 
 
 def get_system_status() -> str:
-    """Получение статуса системы"""
-    core = get_core_instance()
-    if core:
-        status = core.data_manager.get_value(DataType.SYSTEM_STATUS)
-        return status if status else "unknown"
-    return "stopped" 
+    """
+    Получение статуса системы
+    
+    Returns:
+        str: Статус системы
+    """
+    global _global_core_system
+    if _global_core_system and _global_core_system.is_running:
+        entry = _global_core_system.data_manager.get_data(DataType.SYSTEM_STATUS)
+        return entry.value if entry else "unknown"
+    return "stopped"
+
+
+# Новые функции для управления настройками температуры
+def set_temperature_settings(max_temp: float, min_temp: float, source_module: str = "external") -> bool:
+    """
+    Установка настроек температуры в data_manager
+    
+    Args:
+        max_temp: Максимальная температура
+        min_temp: Минимальная температура  
+        source_module: Модуль-источник настроек
+        
+    Returns:
+        bool: True если настройки успешно установлены
+    """
+    global _global_core_system
+    if not _global_core_system:
+        return False
+    
+    settings = {
+        "max_temperature": max_temp,
+        "min_temperature": min_temp,
+        "hysteresis": max_temp - min_temp,
+        "updated_at": datetime.now().isoformat()
+    }
+    
+    return _global_core_system.data_manager.set_data(
+        DataType.TEMPERATURE_SETTINGS,
+        settings,
+        source_module,
+        {"validation": "passed" if max_temp > min_temp else "failed"}
+    )
+
+
+def get_temperature_settings() -> Optional[Dict[str, float]]:
+    """
+    Получение настроек температуры из data_manager
+    
+    Returns:
+        Optional[Dict]: Словарь с настройками температуры или None
+    """
+    global _global_core_system
+    if not _global_core_system:
+        return None
+    
+    entry = _global_core_system.data_manager.get_data(DataType.TEMPERATURE_SETTINGS)
+    return entry.value if entry else None
+
+
+def is_temperature_settings_available() -> bool:
+    """
+    Проверка доступности настроек температуры
+    
+    Returns:
+        bool: True если настройки доступны
+    """
+    settings = get_temperature_settings()
+    return settings is not None and "max_temperature" in settings and "min_temperature" in settings 
