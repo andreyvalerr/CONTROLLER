@@ -1,0 +1,15 @@
+# Основные зависимости для Контроллера Криптокотла
+# Python 3.11+
+
+# Криптографические библиотеки для ASIC API
+pycryptodome==3.19.0
+
+# GUI интерфейс
+kivy>=2.1.0
+
+# GPIO управление (Raspberry Pi)
+RPi.GPIO>=0.7.1
+
+# Дополнительные библиотеки
+typing-extensions>=4.0.0
+dataclasses>=0.6  # для Python < 3.7 (backport) 

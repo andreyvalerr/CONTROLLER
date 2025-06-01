@@ -47,7 +47,7 @@ class MonitoringConfig:
     update_interval: float = 1.0    # Интервал обновления температуры (сек)
     
     # Логирование
-    log_level: str = "INFO"
+    log_level: str = "DEBUG"
     log_file: Optional[str] = None
     enable_console_log: bool = True
     
@@ -140,8 +140,8 @@ def validate_config(relay_config: RelayConfig, temp_config: TemperatureConfig) -
         errors.append(f"Неверный GPIO пин: {relay_config.relay_pin}. Должен быть от 1 до 40")
     
     # Проверка температурных порогов
-    if temp_config.critical_max_temp <= temp_config.emergency_temp:
-        errors.append(f"Критическая температура ({temp_config.critical_max_temp}) должна быть больше аварийной ({temp_config.emergency_temp})")
+    if temp_config.critical_max_temp >= temp_config.emergency_temp:
+        errors.append(f"Критическая температура ({temp_config.critical_max_temp}) должна быть меньше аварийной ({temp_config.emergency_temp})")
     
     # Проверка интервалов
     if temp_config.control_interval <= 0:

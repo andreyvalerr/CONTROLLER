@@ -46,10 +46,16 @@ class ValveController:
         Инициализация контроллера клапанов
         
         Args:
-            temperature_callback: Функция для получения температуры
-            config: Конфигурация контроллера (если None, загружается из переменных окружения)
+            temperature_callback: Функция для получения температуры (будет вызываться регулярно)
+            config: Конфигурация контроллера (по умолчанию загружается из переменных окружения)
         """
-        # Загрузка конфигурации
+        self.temperature_callback = temperature_callback
+        
+        # Валидация функции температуры
+        if not callable(temperature_callback):
+            raise ValueError("temperature_callback должен быть вызываемой функцией")
+        
+        # Конфигурация
         if config is None:
             relay_config, temp_config, monitoring_config, safety_config = load_config_from_env()
             config = ValveControllerConfig(
@@ -60,7 +66,6 @@ class ValveController:
             )
         
         self.config = config
-        self.temperature_callback = temperature_callback
         
         # Настройка логирования
         self._setup_logging()
@@ -73,10 +78,10 @@ class ValveController:
                 self.logger.error(f"Ошибка конфигурации: {error}")
             raise ValueError(f"Некорректная конфигурация: {'; '.join(errors)}")
         
-        # Инициализация компонентов
+        # Компоненты системы
         self.relay_controller = RelayController(self.config.relay_config)
         
-        # Регулятор температуры
+        # Создание регулятора температуры с функцией получения настроек
         regulator_config = RegulatorConfig(
             temperature_config=self.config.temperature_config,
             safety_config=self.config.safety_config
@@ -85,14 +90,15 @@ class ValveController:
         self.temperature_regulator = TemperatureRegulator(
             relay_controller=self.relay_controller,
             temperature_callback=self.temperature_callback,
-            config=regulator_config
+            config=regulator_config,
+            temperature_settings_callback=self.get_temperature_settings_from_data_manager
         )
         
         # Состояние контроллера
         self._is_running = False
         self._shutdown_requested = False
         
-        # Регистрация обработчиков сигналов
+        # Сигналы
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         
