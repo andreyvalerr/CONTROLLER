@@ -156,9 +156,7 @@ class StatusCard(BoxLayout):
         
         # Режим работы
         mode_text = {
-            'auto': 'АВТО',
-            'manual': 'РУЧНОЙ',
-            'emergency': 'АВАРИЙНЫЙ'
+            'auto': 'АВТО'
         }.get(status_data.system_mode, status_data.system_mode.upper())
         
         self.mode_label.text = f'Режим: {mode_text}'
@@ -189,7 +187,7 @@ class ControlPanel(BoxLayout):
             text='Управление',
             font_size=dp(20),
             color=(1, 1, 1, 1),
-            size_hint_y=0.2,
+            size_hint_y=0.4,
             bold=True
         )
         self.add_widget(title)
@@ -198,31 +196,11 @@ class ControlPanel(BoxLayout):
         temp_btn = Button(
             text='Настройка температуры',
             font_size=dp(16),
-            size_hint_y=0.3,
+            size_hint_y=0.6,
             background_color=(0.3, 0.7, 1, 1)
         )
         temp_btn.bind(on_press=self.open_temperature_settings)
         self.add_widget(temp_btn)
-        
-        # Кнопка переключения режима
-        self.mode_btn = Button(
-            text='Переключить в РУЧНОЙ',
-            font_size=dp(16),
-            size_hint_y=0.3,
-            background_color=(1, 0.7, 0.3, 1)
-        )
-        self.mode_btn.bind(on_press=self.toggle_mode)
-        self.add_widget(self.mode_btn)
-        
-        # Кнопка аварийного отключения
-        emergency_btn = Button(
-            text='АВАРИЙНОЕ ОТКЛЮЧЕНИЕ',
-            font_size=dp(16),
-            size_hint_y=0.2,
-            background_color=(1, 0.3, 0.3, 1)
-        )
-        emergency_btn.bind(on_press=self.emergency_stop)
-        self.add_widget(emergency_btn)
     
     def _update_rect(self, instance, value):
         """Обновление размера фона"""
@@ -232,35 +210,6 @@ class ControlPanel(BoxLayout):
     def open_temperature_settings(self, instance):
         """Открытие настроек температуры"""
         self.main_app.open_temperature_popup()
-    
-    def toggle_mode(self, instance):
-        """Переключение режима системы"""
-        current_status = system_state.get_system_status()
-        if current_status.system_mode == 'auto':
-            system_state.update_system_mode('manual')
-            self.mode_btn.text = 'Переключить в АВТО'
-            self.mode_btn.background_color = (0.3, 1, 0.3, 1)
-        else:
-            system_state.update_system_mode('auto')
-            self.mode_btn.text = 'Переключить в РУЧНОЙ'
-            self.mode_btn.background_color = (1, 0.7, 0.3, 1)
-    
-    def emergency_stop(self, instance):
-        """Аварийное отключение"""
-        system_state.update_system_mode('emergency')
-        system_state.update_valve_state(False)
-    
-    def update_mode_button(self, mode):
-        """Обновление кнопки режима"""
-        if mode == 'auto':
-            self.mode_btn.text = 'Переключить в РУЧНОЙ'
-            self.mode_btn.background_color = (1, 0.7, 0.3, 1)
-        elif mode == 'manual':
-            self.mode_btn.text = 'Переключить в АВТО'
-            self.mode_btn.background_color = (0.3, 1, 0.3, 1)
-        else:  # emergency
-            self.mode_btn.text = 'АВАРИЙНЫЙ РЕЖИМ'
-            self.mode_btn.background_color = (1, 0.3, 0.3, 1)
 
 class TemperatureSettingsPopup(Popup):
     """Попап настройки температуры"""
@@ -396,7 +345,6 @@ class TemperatureControllerGUI(App):
             # Обновление карточек
             self.temp_card.update_data(system_data.temperature)
             self.status_card.update_data(system_data.status)
-            self.control_panel.update_mode_button(system_data.status.system_mode)
             
         except Exception as e:
             print(f"Ошибка обновления интерфейса: {e}")
