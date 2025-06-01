@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "last_updated": "2025-06-01T21:50:12.988198",
+  "temperature_settings": {
+    "min_temp": 47.400000000000006,
+    "max_temp": 48.4
+  },
+  "metadata": {
+    "device_id": "raspberry_pi_01",
+    "created_by": "core_system",
+    "backup_count": 3,
+    "source": "gui_interface"
+  }
+}

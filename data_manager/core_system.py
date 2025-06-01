@@ -16,6 +16,7 @@ from dataclasses import dataclass
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from .data_manager import DataManager, DataType, DataEntry
+from .settings_manager import SettingsManager, get_settings_manager
 
 # Импорт модуля температуры
 try:
@@ -61,6 +62,9 @@ class CoreSystem:
         # Менеджер данных
         self.data_manager = DataManager()
         
+        # Менеджер настроек
+        self.settings_manager = get_settings_manager()
+        
         # Состояние системы
         self.is_running = False
         self.start_time = None
@@ -78,6 +82,9 @@ class CoreSystem:
             "last_temperature_update": None,
             "last_error": None
         }
+        
+        # Загрузка настроек температуры при инициализации
+        self._load_temperature_settings_on_init()
     
     def start(self) -> bool:
         """
@@ -328,6 +335,116 @@ class CoreSystem:
             }
         }
 
+    def _load_temperature_settings_on_init(self):
+        """Загрузка настроек температуры при инициализации"""
+        try:
+            # Проверяем, существует ли файл настроек
+            settings_info = self.settings_manager.get_settings_file_info()
+            
+            if not settings_info["exists"]:
+                # Если файл не существует, создаем его из defaults
+                print("Файл настроек не найден, создаю из defaults...")
+                self.settings_manager.copy_defaults_to_settings()
+            
+            # Загружаем настройки
+            settings = self.settings_manager.load_settings()
+            
+            if settings:
+                # Преобразуем в формат data_manager
+                dm_settings = {
+                    "max_temperature": settings["max_temp"],
+                    "min_temperature": settings["min_temp"],
+                    "hysteresis": settings["max_temp"] - settings["min_temp"],
+                    "updated_at": datetime.now().isoformat()
+                }
+                
+                self.data_manager.set_data(
+                    DataType.TEMPERATURE_SETTINGS,
+                    dm_settings,
+                    "settings_manager",
+                    {"validation": "passed", "loaded_from_file": True}
+                )
+                
+                print(f"Настройки температуры загружены: min={settings['min_temp']}°C, max={settings['max_temp']}°C")
+            
+        except Exception as e:
+            self._log_error(f"Ошибка при загрузке настроек температуры: {e}")
+    
+    def save_current_settings(self) -> bool:
+        """
+        Сохранение текущих настроек температуры в файл
+        
+        Returns:
+            bool: True если сохранение успешно
+        """
+        try:
+            # Получаем текущие настройки из data_manager
+            entry = self.data_manager.get_data(DataType.TEMPERATURE_SETTINGS)
+            
+            if not entry or not entry.value:
+                self._log_error("Нет текущих настроек для сохранения")
+                return False
+            
+            settings = entry.value
+            
+            # Преобразуем в формат для settings_manager
+            save_data = {
+                "min_temp": settings.get("min_temperature", 45.0),
+                "max_temp": settings.get("max_temperature", 55.0),
+                "source": entry.source_module
+            }
+            
+            # Сохраняем через settings_manager
+            return self.settings_manager.save_settings(save_data)
+            
+        except Exception as e:
+            self._log_error(f"Ошибка при сохранении настроек: {e}")
+            return False
+    
+    def reload_settings_from_file(self) -> bool:
+        """
+        Перезагрузка настроек из файла
+        
+        Returns:
+            bool: True если перезагрузка успешна
+        """
+        try:
+            settings = self.settings_manager.load_settings()
+            
+            if settings:
+                # Преобразуем в формат data_manager
+                dm_settings = {
+                    "max_temperature": settings["max_temp"],
+                    "min_temperature": settings["min_temp"],
+                    "hysteresis": settings["max_temp"] - settings["min_temp"],
+                    "updated_at": datetime.now().isoformat()
+                }
+                
+                self.data_manager.set_data(
+                    DataType.TEMPERATURE_SETTINGS,
+                    dm_settings,
+                    "settings_manager",
+                    {"validation": "passed", "reloaded_from_file": True}
+                )
+                
+                print(f"Настройки перезагружены: min={settings['min_temp']}°C, max={settings['max_temp']}°C")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self._log_error(f"Ошибка при перезагрузке настроек: {e}")
+            return False
+    
+    def get_settings_file_info(self) -> Dict[str, Any]:
+        """
+        Получение информации о файле настроек
+        
+        Returns:
+            Dict: Информация о файле настроек
+        """
+        return self.settings_manager.get_settings_file_info()
+
 
 # Глобальный экземпляр ядра
 _global_core_system = None
@@ -404,7 +521,7 @@ def get_system_status() -> str:
 # Новые функции для управления настройками температуры
 def set_temperature_settings(max_temp: float, min_temp: float, source_module: str = "external") -> bool:
     """
-    Установка настроек температуры в data_manager
+    Установка настроек температуры в data_manager с автоматическим сохранением
     
     Args:
         max_temp: Максимальная температура
@@ -412,10 +529,16 @@ def set_temperature_settings(max_temp: float, min_temp: float, source_module: st
         source_module: Модуль-источник настроек
         
     Returns:
-        bool: True если настройки успешно установлены
+        bool: True если настройки успешно установлены и сохранены
     """
     global _global_core_system
     if not _global_core_system:
+        return False
+    
+    # Валидация настроек перед установкой
+    temp_settings = {"min_temp": min_temp, "max_temp": max_temp}
+    if not _global_core_system.settings_manager.validate_settings(temp_settings):
+        print(f"Ошибка: Настройки не прошли валидацию")
         return False
     
     settings = {
@@ -425,12 +548,24 @@ def set_temperature_settings(max_temp: float, min_temp: float, source_module: st
         "updated_at": datetime.now().isoformat()
     }
     
-    return _global_core_system.data_manager.set_data(
+    # Установка в data_manager
+    success = _global_core_system.data_manager.set_data(
         DataType.TEMPERATURE_SETTINGS,
         settings,
         source_module,
-        {"validation": "passed" if max_temp > min_temp else "failed"}
+        {"validation": "passed", "auto_save": True}
     )
+    
+    if success:
+        # Автоматическое сохранение в файл
+        save_success = _global_core_system.save_current_settings()
+        if save_success:
+            print(f"Настройки температуры установлены и сохранены: min={min_temp}°C, max={max_temp}°C")
+        else:
+            print(f"Настройки установлены, но не удалось сохранить в файл")
+        return save_success
+    
+    return False
 
 
 def get_temperature_settings() -> Optional[Dict[str, float]]:
@@ -456,4 +591,43 @@ def is_temperature_settings_available() -> bool:
         bool: True если настройки доступны
     """
     settings = get_temperature_settings()
-    return settings is not None and "max_temperature" in settings and "min_temperature" in settings 
+    return settings is not None and "max_temperature" in settings and "min_temperature" in settings
+
+
+def save_current_temperature_settings() -> bool:
+    """
+    Сохранение текущих настроек температуры в файл
+    
+    Returns:
+        bool: True если сохранение успешно
+    """
+    core = get_core_instance()
+    if core:
+        return core.save_current_settings()
+    return False
+
+
+def reload_temperature_settings_from_file() -> bool:
+    """
+    Перезагрузка настроек температуры из файла
+    
+    Returns:
+        bool: True если перезагрузка успешна
+    """
+    core = get_core_instance()
+    if core:
+        return core.reload_settings_from_file()
+    return False
+
+
+def get_temperature_settings_file_info() -> Dict[str, Any]:
+    """
+    Получение информации о файле настроек температуры
+    
+    Returns:
+        Dict: Информация о файле настроек
+    """
+    core = get_core_instance()
+    if core:
+        return core.get_settings_file_info()
+    return {"exists": False, "error": "Core system not available"} 
