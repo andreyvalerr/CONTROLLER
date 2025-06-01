@@ -15,9 +15,15 @@ from kivy.uix.button import Button
 from kivy.uix.progressbar import ProgressBar
 from kivy.uix.popup import Popup
 from kivy.uix.slider import Slider
+from kivy.uix.switch import Switch
+from kivy.uix.textinput import TextInput
+from kivy.uix.spinner import Spinner
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.image import Image
 from kivy.clock import Clock
 from kivy.core.window import Window
-from kivy.graphics import Color, Rectangle, RoundedRectangle
+from kivy.graphics import Color, Rectangle, RoundedRectangle, Ellipse, Line
 from kivy.metrics import dp
 
 # Добавляем путь к модулю data_manager
@@ -41,41 +47,42 @@ class TemperatureCard(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'vertical'
-        self.spacing = dp(10)
-        self.padding = dp(15)
+        self.spacing = dp(30)
+        self.padding = dp(30)
         
-        # Фон карточки
+        # Фон карточки на всё окно
         with self.canvas.before:
             Color(0.2, 0.2, 0.2, 1)  # Темно-серый фон
-            self.rect = RoundedRectangle(size=self.size, pos=self.pos, radius=[dp(15)])
+            self.rect = RoundedRectangle(size=self.size, pos=self.pos, radius=[dp(25)])
         
         self.bind(size=self._update_rect, pos=self._update_rect)
         
-        # Заголовок
-        self.title_label = Label(
-            text='Температура охлаждающей жидкости',
-            font_size=dp(18),
-            color=(1, 1, 1, 1),
-            size_hint_y=0.3
+        # Отступ сверху для лого (еще меньше)
+        top_spacer = Label(
+            text='',
+            size_hint_y=None,
+            height=dp(100)  # Еще меньший отступ для поднятия температуры
         )
-        self.add_widget(self.title_label)
+        self.add_widget(top_spacer)
         
-        # Текущая температура
+        # Текущая температура (очень большой размер шрифта)
         self.temp_label = Label(
             text='--°C',
-            font_size=dp(48),
+            font_size=dp(120),  # Увеличен размер шрифта
             color=(0.3, 0.8, 1, 1),  # Голубой цвет
-            size_hint_y=0.5,
-            bold=True
+            size_hint_y=0.6,
+            bold=True,
+            font_name='DejaVuSans'  # Более округлый шрифт
         )
         self.add_widget(self.temp_label)
         
-        # Диапазон температуры
+        # Целевая температура
         self.range_label = Label(
-            text='Диапазон: --°C - --°C',
-            font_size=dp(16),
+            text='Целевая температура: --°C - --°C',
+            font_size=dp(24),  # Увеличен размер шрифта
             color=(0.8, 0.8, 0.8, 1),
-            size_hint_y=0.2
+            size_hint_y=0.4,
+            font_name='DejaVuSans'  # Более округлый шрифт
         )
         self.add_widget(self.range_label)
     
@@ -110,317 +117,348 @@ class TemperatureCard(BoxLayout):
             self.temp_label.text = '--°C'
             self.temp_label.color = (0.6, 0.6, 0.6, 1)
         
-        # Обновление диапазона
+        # Обновление целевой температуры
         if temp_settings:
             min_temp = temp_settings.get('min_temperature', 45.0)
             max_temp = temp_settings.get('max_temperature', 55.0)
-            self.range_label.text = f'Диапазон: {min_temp:.1f}°C - {max_temp:.1f}°C'
+            self.range_label.text = f'Целевая температура: {min_temp:.1f}°C - {max_temp:.1f}°C'
         else:
-            self.range_label.text = 'Диапазон: не настроен'
+            self.range_label.text = 'Целевая температура: не настроена'
 
-class StatusCard(BoxLayout):
-    """Карточка статуса системы"""
+class GearIcon(Button):
+    """Кликабельная иконка шестеренки"""
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.orientation = 'vertical'
-        self.spacing = dp(10)
-        self.padding = dp(15)
+        self.size_hint = (None, None)
+        self.size = (dp(60), dp(60))  # Немного увеличил размер
+        self.background_color = (0, 0, 0, 0)  # Прозрачный фон
+        self.background_normal = ''
         
-        # Фон карточки
+        # Привязываем обновление графики к изменениям размера и позиции
+        self.bind(size=self._update_graphics, pos=self._update_graphics)
+        self._update_graphics()
+    
+    def _update_graphics(self, *args):
+        """Обновление графики шестеренки"""
+        self.canvas.before.clear()
         with self.canvas.before:
-            Color(0.2, 0.2, 0.2, 1)
-            self.rect = RoundedRectangle(size=self.size, pos=self.pos, radius=[dp(15)])
-        
-        self.bind(size=self._update_rect, pos=self._update_rect)
-        
-        # Заголовок
-        self.title_label = Label(
-            text='Статус системы',
-            font_size=dp(18),
-            color=(1, 1, 1, 1),
-            size_hint_y=0.25
-        )
-        self.add_widget(self.title_label)
-        
-        # Статус клапана
-        self.valve_label = Label(
-            text='Клапан: ЗАКРЫТ',
-            font_size=dp(20),
-            color=(1, 0.4, 0.4, 1),
-            size_hint_y=0.35,
-            bold=True
-        )
-        self.add_widget(self.valve_label)
-        
-        # Режим работы
-        self.mode_label = Label(
-            text='Режим: АВТО',
-            font_size=dp(16),
-            color=(0.8, 0.8, 0.8, 1),
-            size_hint_y=0.25
-        )
-        self.add_widget(self.mode_label)
-        
-        # Время обновления
-        self.update_label = Label(
-            text='Обновлено: --:--',
-            font_size=dp(14),
-            color=(0.6, 0.6, 0.6, 1),
-            size_hint_y=0.15
-        )
-        self.add_widget(self.update_label)
-    
-    def _update_rect(self, instance, value):
-        """Обновление размера фона"""
-        self.rect.pos = instance.pos
-        self.rect.size = instance.size
-    
-    def update_data(self, system_data: SystemData):
-        """Обновление данных статуса"""
-        # Поскольку у нас нет valve_state в SystemData, используем system_status для вывода
-        if system_data.system_status == "running":
-            valve_text = 'АКТИВНА'
-            valve_color = (0.4, 1, 0.4, 1)
-        else:
-            valve_text = 'НЕАКТИВНА'
-            valve_color = (1, 0.4, 0.4, 1)
-        
-        self.valve_label.text = f'Система: {valve_text}'
-        self.valve_label.color = valve_color
-        
-        # Режим работы
-        mode_text = {
-            'running': 'РАБОТАЕТ',
-            'starting': 'ЗАПУСК',
-            'stopped': 'ОСТАНОВЛЕНА',
-            'unknown': 'НЕИЗВЕСТНО'
-        }.get(system_data.system_status, system_data.system_status.upper())
-        
-        self.mode_label.text = f'Статус: {mode_text}'
-        
-        # Время обновления
-        if system_data.last_update:
-            update_time = system_data.last_update.strftime('%H:%M:%S')
-            self.update_label.text = f'Обновлено: {update_time}'
-        else:
-            self.update_label.text = 'Обновлено: --:--'
+            Color(1, 1, 1, 1)  # Белый цвет
+            # Внешний круг шестеренки
+            outer_size = (dp(45), dp(45))
+            outer_pos = (self.pos[0] + dp(7.5), self.pos[1] + dp(7.5))
+            self.outer_circle = Ellipse(pos=outer_pos, size=outer_size)
+            
+            # Внутренний круг
+            inner_size = (dp(25), dp(25))
+            inner_pos = (self.pos[0] + dp(17.5), self.pos[1] + dp(17.5))
+            Color(0.1, 0.1, 0.1, 1)  # Цвет фона
+            self.inner_circle = Ellipse(pos=inner_pos, size=inner_size)
+            
+            # Зубчики шестеренки
+            Color(1, 1, 1, 1)
+            center_x = self.pos[0] + dp(30)
+            center_y = self.pos[1] + dp(30)
+            
+            # 8 зубцов вокруг центра
+            import math
+            for i in range(8):
+                angle = i * math.pi / 4
+                x1 = center_x + dp(17) * math.cos(angle)
+                y1 = center_y + dp(17) * math.sin(angle)
+                x2 = center_x + dp(22) * math.cos(angle)
+                y2 = center_y + dp(22) * math.sin(angle)
+                Line(points=[x1, y1, x2, y2], width=3)
 
-class ControlPanel(BoxLayout):
-    """Панель управления"""
-    
-    def __init__(self, main_app, **kwargs):
-        super().__init__(**kwargs)
-        self.main_app = main_app
-        self.orientation = 'vertical'
-        self.spacing = dp(15)
-        self.padding = dp(15)
-        
-        # Фон панели
-        with self.canvas.before:
-            Color(0.15, 0.15, 0.15, 1)
-            self.rect = RoundedRectangle(size=self.size, pos=self.pos, radius=[dp(15)])
-        
-        self.bind(size=self._update_rect, pos=self._update_rect)
-        
-        # Заголовок
-        title = Label(
-            text='Управление',
-            font_size=dp(20),
-            color=(1, 1, 1, 1),
-            size_hint_y=0.4,
-            bold=True
-        )
-        self.add_widget(title)
-        
-        # Кнопка настройки температуры
-        temp_btn = Button(
-            text='Настройка диапазона температуры',
-            font_size=dp(16),
-            size_hint_y=0.6,
-            background_color=(0.3, 0.7, 1, 1)
-        )
-        temp_btn.bind(on_press=self.open_temperature_settings)
-        self.add_widget(temp_btn)
-    
-    def _update_rect(self, instance, value):
-        """Обновление размера фона"""
-        self.rect.pos = instance.pos
-        self.rect.size = instance.size
-    
-    def open_temperature_settings(self, instance):
-        """Открытие настроек температуры"""
-        self.main_app.open_temperature_popup()
-
-class TemperatureSettingsPopup(Popup):
-    """Попап настройки минимальной и максимальной температуры"""
+class SettingsPage(Popup):
+    """Страница настроек"""
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.title = 'Настройка температуры'
-        self.size_hint = (0.8, 0.8)
+        
+        self.title = 'Настройки системы'
+        self.size_hint = (0.95, 0.95)
         self.auto_dismiss = False
         
-        # Получение текущих настроек
-        current_settings = get_temperature_settings()
-        self.min_temp = current_settings.get('min_temperature', 45.0) if current_settings else 45.0
-        self.max_temp = current_settings.get('max_temperature', 55.0) if current_settings else 55.0
+        # Получение текущих настроек температуры
+        temp_settings = get_temperature_settings()
+        if temp_settings:
+            self.min_temp = temp_settings.get('min_temperature', 45.0)
+            self.max_temp = temp_settings.get('max_temperature', 55.0)
+        else:
+            self.min_temp = 45.0
+            self.max_temp = 55.0
         
-        # Основной контейнер
-        main_layout = BoxLayout(orientation='vertical', spacing=dp(20), padding=dp(20))
+        # Основной контейнер со скроллингом
+        scroll = ScrollView()
+        main_layout = BoxLayout(orientation='vertical', spacing=dp(20), padding=dp(20), size_hint_y=None)
+        main_layout.bind(minimum_height=main_layout.setter('height'))
         
-        # Заголовок с текущими настройками
-        header_label = Label(
-            text='Настройка диапазона температуры',
-            font_size=dp(18),
-            size_hint_y=0.1,
-            color=(1, 1, 1, 1),
-            bold=True
+        # Секция температурных настроек
+        temp_section = self._create_temperature_section()
+        main_layout.add_widget(temp_section)
+        
+        # Секция метода получения температуры (заглушка)
+        method_section = self._create_method_section()
+        main_layout.add_widget(method_section)
+        
+        # Секция IP адреса асика (заглушка)
+        ip_section = self._create_ip_section()
+        main_layout.add_widget(ip_section)
+        
+        # Секция темы (заглушка)
+        theme_section = self._create_theme_section()
+        main_layout.add_widget(theme_section)
+        
+        # Секция полноэкранного режима (заглушка)
+        fullscreen_section = self._create_fullscreen_section()
+        main_layout.add_widget(fullscreen_section)
+        
+        # Кнопки управления
+        button_layout = BoxLayout(orientation='horizontal', spacing=dp(20), size_hint_y=None, height=dp(50))
+        
+        close_btn = Button(
+            text='Закрыть',
+            size_hint_x=0.5,
+            background_color=(0.6, 0.6, 0.6, 1)
         )
-        main_layout.add_widget(header_label)
+        close_btn.bind(on_press=self.dismiss)
         
-        # Секция минимальной температуры
-        min_section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=0.35)
-        
-        min_title = Label(
-            text='Минимальная температура',
-            font_size=dp(16),
-            size_hint_y=0.2,
-            color=(0.8, 0.8, 0.8, 1)
+        save_btn = Button(
+            text='Сохранить',
+            size_hint_x=0.5,
+            background_color=(0.3, 0.8, 1, 1)
         )
-        min_section.add_widget(min_title)
+        save_btn.bind(on_press=self.save_settings)
         
-        self.min_slider = Slider(
-            min=30.0,
-            max=65.0,
-            value=self.min_temp,
-            step=0.1,
-            size_hint_y=0.5
-        )
+        button_layout.add_widget(close_btn)
+        button_layout.add_widget(save_btn)
+        main_layout.add_widget(button_layout)
         
-        self.min_value_label = Label(
-            text=f'{self.min_temp:.1f}°C',
+        scroll.add_widget(main_layout)
+        self.content = scroll
+    
+    def _create_section_header(self, title):
+        """Создание заголовка секции"""
+        header = Label(
+            text=title,
             font_size=dp(20),
-            size_hint_y=0.3,
-            color=(0.4, 0.8, 1, 1),
-            bold=True
+            size_hint_y=None,
+            height=dp(40),
+            color=(0.3, 0.8, 1, 1),
+            bold=True,
+            halign='left'
         )
+        header.bind(size=header.setter('text_size'))
+        return header
+    
+    def _create_temperature_section(self):
+        """Создание секции температурных настроек"""
+        section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(300))
         
-        self.min_slider.bind(value=self.on_min_slider_value)
+        # Заголовок секции
+        section.add_widget(self._create_section_header('Температурные пороги'))
         
-        min_section.add_widget(self.min_slider)
-        min_section.add_widget(self.min_value_label)
-        main_layout.add_widget(min_section)
-        
-        # Секция максимальной температуры
-        max_section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=0.35)
+        # Верхний порог температуры
+        max_layout = BoxLayout(orientation='vertical', spacing=dp(5), size_hint_y=None, height=dp(120))
         
         max_title = Label(
-            text='Максимальная температура',
+            text='Верхний порог температуры',
             font_size=dp(16),
-            size_hint_y=0.2,
-            color=(0.8, 0.8, 0.8, 1)
+            size_hint_y=None,
+            height=dp(30),
+            color=(1, 0.6, 0.4, 1)
         )
-        max_section.add_widget(max_title)
+        max_layout.add_widget(max_title)
         
         self.max_slider = Slider(
             min=35.0,
             max=70.0,
             value=self.max_temp,
             step=0.1,
-            size_hint_y=0.5
+            size_hint_y=None,
+            height=dp(40)
         )
         
         self.max_value_label = Label(
             text=f'{self.max_temp:.1f}°C',
-            font_size=dp(20),
-            size_hint_y=0.3,
+            font_size=dp(18),
+            size_hint_y=None,
+            height=dp(30),
             color=(1, 0.6, 0.4, 1),
             bold=True
         )
         
         self.max_slider.bind(value=self.on_max_slider_value)
         
-        max_section.add_widget(self.max_slider)
-        max_section.add_widget(self.max_value_label)
-        main_layout.add_widget(max_section)
+        max_layout.add_widget(self.max_slider)
+        max_layout.add_widget(self.max_value_label)
+        section.add_widget(max_layout)
         
-        # Сообщение об ошибке валидации
-        self.error_label = Label(
+        # Нижний порог температуры
+        min_layout = BoxLayout(orientation='vertical', spacing=dp(5), size_hint_y=None, height=dp(120))
+        
+        min_title = Label(
+            text='Нижний порог температуры',
+            font_size=dp(16),
+            size_hint_y=None,
+            height=dp(30),
+            color=(0.4, 0.8, 1, 1)
+        )
+        min_layout.add_widget(min_title)
+        
+        self.min_slider = Slider(
+            min=20.0,
+            max=60.0,
+            value=self.min_temp,
+            step=0.1,
+            size_hint_y=None,
+            height=dp(40)
+        )
+        
+        self.min_value_label = Label(
+            text=f'{self.min_temp:.1f}°C',
+            font_size=dp(18),
+            size_hint_y=None,
+            height=dp(30),
+            color=(0.4, 0.8, 1, 1),
+            bold=True
+        )
+        
+        self.min_slider.bind(value=self.on_min_slider_value)
+        
+        min_layout.add_widget(self.min_slider)
+        min_layout.add_widget(self.min_value_label)
+        section.add_widget(min_layout)
+        
+        # Сообщение о валидации
+        self.temp_error_label = Label(
             text='',
             font_size=dp(14),
-            size_hint_y=0.05,
+            size_hint_y=None,
+            height=dp(30),
             color=(1, 0.3, 0.3, 1)
         )
-        main_layout.add_widget(self.error_label)
+        section.add_widget(self.temp_error_label)
         
-        # Кнопки
-        button_layout = BoxLayout(orientation='horizontal', spacing=dp(20), size_hint_y=0.15)
+        self.validate_temperature_settings()
         
-        cancel_btn = Button(
-            text='Отмена',
-            size_hint_x=0.5,
-            background_color=(0.6, 0.6, 0.6, 1)
+        return section
+    
+    def _create_method_section(self):
+        """Создание секции метода получения температуры (заглушка)"""
+        section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(100))
+        
+        section.add_widget(self._create_section_header('Метод получения температуры'))
+        
+        method_spinner = Spinner(
+            text='DS18B20 (по умолчанию)',
+            values=['DS18B20 (по умолчанию)', 'Термопара K-типа', 'Цифровой датчик'],
+            size_hint_y=None,
+            height=dp(40),
+            background_color=(0.3, 0.3, 0.3, 1)
         )
-        cancel_btn.bind(on_press=self.dismiss)
         
-        self.save_btn = Button(
-            text='Сохранить',
-            size_hint_x=0.5,
-            background_color=(0.3, 0.8, 1, 1)
+        section.add_widget(method_spinner)
+        
+        return section
+    
+    def _create_ip_section(self):
+        """Создание секции IP адреса асика (заглушка)"""
+        section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(100))
+        
+        section.add_widget(self._create_section_header('IP адрес ASIC устройства'))
+        
+        ip_input = TextInput(
+            text='192.168.1.100',
+            multiline=False,
+            size_hint_y=None,
+            height=dp(40),
+            background_color=(0.3, 0.3, 0.3, 1),
+            foreground_color=(1, 1, 1, 1)
         )
-        self.save_btn.bind(on_press=self.save_temperature_settings)
         
-        button_layout.add_widget(cancel_btn)
-        button_layout.add_widget(self.save_btn)
-        main_layout.add_widget(button_layout)
+        section.add_widget(ip_input)
         
-        self.content = main_layout
+        return section
+    
+    def _create_theme_section(self):
+        """Создание секции темы (заглушка)"""
+        section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(100))
         
-        # Начальная валидация
-        self.validate_settings()
+        section.add_widget(self._create_section_header('Тема интерфейса'))
+        
+        theme_spinner = Spinner(
+            text='Темная (по умолчанию)',
+            values=['Темная (по умолчанию)', 'Светлая', 'Синяя', 'Зеленая'],
+            size_hint_y=None,
+            height=dp(40),
+            background_color=(0.3, 0.3, 0.3, 1)
+        )
+        
+        section.add_widget(theme_spinner)
+        
+        return section
+    
+    def _create_fullscreen_section(self):
+        """Создание секции полноэкранного режима (заглушка)"""
+        section = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(80))
+        
+        label = Label(
+            text='Полноэкранный режим',
+            font_size=dp(18),
+            color=(1, 1, 1, 1),
+            size_hint_x=0.7
+        )
+        
+        fullscreen_switch = Switch(
+            active=False,
+            size_hint_x=0.3
+        )
+        
+        section.add_widget(label)
+        section.add_widget(fullscreen_switch)
+        
+        return section
     
     def on_min_slider_value(self, instance, value):
         """Обновление значения минимальной температуры"""
         self.min_temp = value
         self.min_value_label.text = f'{value:.1f}°C'
-        self.validate_settings()
+        self.validate_temperature_settings()
     
     def on_max_slider_value(self, instance, value):
         """Обновление значения максимальной температуры"""
         self.max_temp = value
         self.max_value_label.text = f'{value:.1f}°C'
-        self.validate_settings()
+        self.validate_temperature_settings()
     
-    def validate_settings(self):
+    def validate_temperature_settings(self):
         """Валидация настроек температуры"""
         if self.min_temp >= self.max_temp:
-            self.error_label.text = 'Минимальная температура должна быть меньше максимальной!'
-            self.save_btn.background_color = (0.6, 0.6, 0.6, 1)
-            self.save_btn.disabled = True
+            self.temp_error_label.text = 'Нижний порог должен быть меньше верхнего!'
+            self.temp_error_label.color = (1, 0.3, 0.3, 1)
         else:
             difference = self.max_temp - self.min_temp
-            self.error_label.text = f'Диапазон: {difference:.1f}°C'
-            self.error_label.color = (0.4, 1, 0.4, 1)
-            self.save_btn.background_color = (0.3, 0.8, 1, 1)
-            self.save_btn.disabled = False
+            self.temp_error_label.text = f'Диапазон: {difference:.1f}°C'
+            self.temp_error_label.color = (0.4, 1, 0.4, 1)
     
-    def save_temperature_settings(self, instance):
-        """Сохранение новых настроек температуры"""
-        if self.min_temp >= self.max_temp:
-            return  # Не сохраняем некорректные настройки
+    def save_settings(self, instance):
+        """Сохранение настроек"""
+        # Сохраняем только температурные настройки (остальные - заглушки)
+        if self.min_temp < self.max_temp:
+            success = set_temperature_settings(
+                max_temp=self.max_temp,
+                min_temp=self.min_temp,
+                source_module="gui_interface"
+            )
+            
+            if success:
+                print(f"Температурные настройки сохранены: {self.min_temp:.1f}°C - {self.max_temp:.1f}°C")
+            else:
+                print("Ошибка при сохранении температурных настроек")
         
-        success = set_temperature_settings(
-            max_temp=self.max_temp,
-            min_temp=self.min_temp,
-            source_module="gui_interface"
-        )
-        
-        if success:
-            print(f"Настройки температуры сохранены: {self.min_temp:.1f}°C - {self.max_temp:.1f}°C")
-        else:
-            print("Ошибка при сохранении настроек температуры")
-        
+        print("Остальные настройки пока недоступны (заглушки)")
         self.dismiss()
 
 class TemperatureControllerGUI(App):
@@ -432,25 +470,34 @@ class TemperatureControllerGUI(App):
         Window.fullscreen = False  # Можно изменить на True для реального использования
         Window.size = (800, 480)  # Типичный размер для 7" дисплея
         
-        # Основной контейнер
-        main_layout = BoxLayout(orientation='horizontal', spacing=dp(10), padding=dp(10))
+        # Основной контейнер с наложением (FloatLayout для размещения элементов)
+        root_layout = FloatLayout()
         
-        # Левая панель с данными
-        data_panel = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_x=0.7)
+        # Карточка температуры на весь экран
+        self.temp_card = TemperatureCard(
+            size_hint=(1, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}
+        )
+        root_layout.add_widget(self.temp_card)
         
-        # Карточка температуры
-        self.temp_card = TemperatureCard(size_hint_y=0.6)
-        data_panel.add_widget(self.temp_card)
+        # Лого в верхней части экрана по центру
+        logo_path = '/home/user/CONTROLLER/gui_interface/images/Transparent Logo.png'
+        self.logo = Image(
+            source=logo_path,
+            size_hint=(None, None),
+            size=(dp(400), dp(240)),  # Фиксированный размер
+            pos_hint={'center_x': 0.5, 'top': 1.1},  # Еще выше
+            allow_stretch=True,
+            keep_ratio=True
+        )
+        root_layout.add_widget(self.logo)
         
-        # Карточка статуса
-        self.status_card = StatusCard(size_hint_y=0.4)
-        data_panel.add_widget(self.status_card)
-        
-        main_layout.add_widget(data_panel)
-        
-        # Правая панель управления
-        self.control_panel = ControlPanel(self, size_hint_x=0.3)
-        main_layout.add_widget(self.control_panel)
+        # Шестеренка в правом верхнем углу
+        self.gear_icon = GearIcon(
+            pos_hint={'right': 0.95, 'top': 0.95}
+        )
+        self.gear_icon.bind(on_press=self.open_settings_page)
+        root_layout.add_widget(self.gear_icon)
         
         # НЕ запускаем core system из GUI - он должен быть уже запущен из start_all_modules.py
         # Проверяем только что система доступна
@@ -471,19 +518,18 @@ class TemperatureControllerGUI(App):
                 last_update=datetime.now() if current_temp is not None else None
             )
         
-        # Обновление карточек
+        # Обновление карточки температуры
         self.temp_card.update_data(system_data.temperature)
-        self.status_card.update_data(system_data)
         
         # Запуск таймера обновления
         Clock.schedule_interval(self.update_interface, 1.0)
         
         # Установка темного фона
-        with main_layout.canvas.before:
+        with root_layout.canvas.before:
             Color(0.1, 0.1, 0.1, 1)
             self.bg_rect = Rectangle(size=Window.size, pos=(0, 0))
         
-        return main_layout
+        return root_layout
     
     def update_interface(self, dt):
         """Обновление интерфейса"""
@@ -501,16 +547,15 @@ class TemperatureControllerGUI(App):
                     last_update=datetime.now() if current_temp is not None else None
                 )
             
-            # Обновление карточек
+            # Обновление карточки температуры
             self.temp_card.update_data(system_data.temperature)
-            self.status_card.update_data(system_data)
             
         except Exception as e:
             print(f"Ошибка обновления интерфейса: {e}")
     
-    def open_temperature_popup(self):
-        """Открытие попапа настройки температуры"""
-        popup = TemperatureSettingsPopup()
+    def open_settings_page(self, instance=None):
+        """Открытие страницы настроек"""
+        popup = SettingsPage()
         popup.open()
 
 def main():
