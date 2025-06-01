@@ -170,8 +170,198 @@ class GearIcon(Button):
                 y2 = center_y + dp(22) * math.sin(angle)
                 Line(points=[x1, y1, x2, y2], width=3)
 
+class NumericKeyboard(Popup):
+    """Виртуальная клавиатура для ввода IP адреса"""
+    
+    def __init__(self, target_input, **kwargs):
+        super().__init__(**kwargs)
+        self.target_input = target_input
+        self.title = 'Ввод IP адреса'
+        self.size_hint = (0.85, 0.75)  # Уменьшаем размер для размещения на экране
+        self.auto_dismiss = False
+        
+        # Основной контейнер
+        main_layout = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(10))
+        
+        # Поле отображения вводимого текста
+        self.display_input = TextInput(
+            text=target_input.text,
+            multiline=False,
+            readonly=True,
+            size_hint_y=None,
+            height=dp(50),
+            font_size=dp(24),
+            background_color=(0.2, 0.2, 0.2, 1),
+            foreground_color=(1, 1, 1, 1),
+            halign='center'
+        )
+        main_layout.add_widget(self.display_input)
+        
+        # Клавиатура с цифрами (4 ряда по 3 кнопки)
+        keyboard_layout = GridLayout(cols=3, spacing=dp(8), size_hint_y=None)
+        keyboard_layout.bind(minimum_height=keyboard_layout.setter('height'))
+        
+        # Цифры 1-9
+        for i in range(1, 10):
+            btn = Button(
+                text=str(i),
+                font_size=dp(28),
+                size_hint_y=None,
+                height=dp(60),
+                background_color=(0.4, 0.4, 0.4, 1)
+            )
+            btn.bind(on_press=lambda x, num=str(i): self.add_character(num))
+            keyboard_layout.add_widget(btn)
+        
+        # Нижний ряд: точка, 0, backspace
+        dot_btn = Button(
+            text='.',
+            font_size=dp(28),
+            size_hint_y=None,
+            height=dp(60),
+            background_color=(0.4, 0.4, 0.4, 1)
+        )
+        dot_btn.bind(on_press=lambda x: self.add_character('.'))
+        keyboard_layout.add_widget(dot_btn)
+        
+        zero_btn = Button(
+            text='0',
+            font_size=dp(28),
+            size_hint_y=None,
+            height=dp(60),
+            background_color=(0.4, 0.4, 0.4, 1)
+        )
+        zero_btn.bind(on_press=lambda x: self.add_character('0'))
+        keyboard_layout.add_widget(zero_btn)
+        
+        backspace_btn = Button(
+            text='⌫',
+            font_size=dp(28),
+            size_hint_y=None,
+            height=dp(60),
+            background_color=(0.8, 0.4, 0.4, 1)
+        )
+        backspace_btn.bind(on_press=lambda x: self.backspace())
+        keyboard_layout.add_widget(backspace_btn)
+        
+        main_layout.add_widget(keyboard_layout)
+        
+        # Кнопки управления (отдельно от цифровой клавиатуры)
+        button_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(50))
+        
+        clear_btn = Button(
+            text='Очистить',
+            font_size=dp(16),
+            background_color=(0.8, 0.6, 0.4, 1)
+        )
+        clear_btn.bind(on_press=lambda x: self.clear_input())
+        
+        cancel_btn = Button(
+            text='Отмена',
+            font_size=dp(16),
+            background_color=(0.6, 0.6, 0.6, 1)
+        )
+        cancel_btn.bind(on_press=lambda x: self.dismiss())
+        
+        ok_btn = Button(
+            text='ОК',
+            font_size=dp(16),
+            background_color=(0.3, 0.8, 1, 1)
+        )
+        ok_btn.bind(on_press=lambda x: self.confirm_input())
+        
+        button_layout.add_widget(clear_btn)
+        button_layout.add_widget(cancel_btn)
+        button_layout.add_widget(ok_btn)
+        main_layout.add_widget(button_layout)
+        
+        self.content = main_layout
+    
+    def add_character(self, char):
+        """Добавление символа к вводу"""
+        current_text = self.display_input.text
+        # Проверяем валидность для IP адреса
+        new_text = current_text + char
+        if self.is_valid_ip_partial(new_text):
+            self.display_input.text = new_text
+    
+    def backspace(self):
+        """Удаление последнего символа"""
+        current_text = self.display_input.text
+        if len(current_text) > 0:
+            self.display_input.text = current_text[:-1]
+    
+    def clear_input(self):
+        """Очистка поля ввода"""
+        self.display_input.text = ''
+    
+    def confirm_input(self):
+        """Подтверждение ввода"""
+        ip_text = self.display_input.text
+        if self.is_valid_ip(ip_text):
+            self.target_input.text = ip_text
+            self.dismiss()
+        else:
+            # Показываем ошибку
+            error_popup = Popup(
+                title='Ошибка',
+                content=Label(text='Неверный формат IP адреса\nПример: 192.168.1.100'),
+                size_hint=(0.6, 0.4),
+                auto_dismiss=True
+            )
+            error_popup.open()
+    
+    def is_valid_ip_partial(self, text):
+        """Проверка частично введенного IP адреса"""
+        if len(text) > 15:  # Максимальная длина IP
+            return False
+        
+        # Разрешаем только цифры и точки
+        allowed_chars = set('0123456789.')
+        if not all(c in allowed_chars for c in text):
+            return False
+        
+        # Не более 3 точек
+        if text.count('.') > 3:
+            return False
+        
+        # Проверяем каждую часть
+        parts = text.split('.')
+        if len(parts) > 4:
+            return False
+        
+        for part in parts:
+            if part == '':
+                continue  # Разрешаем пустые части во время ввода
+            if len(part) > 3:
+                return False
+            if not part.isdigit():
+                return False
+            if int(part) > 255:
+                return False
+        
+        return True
+    
+    def is_valid_ip(self, text):
+        """Проверка полного IP адреса"""
+        parts = text.split('.')
+        if len(parts) != 4:
+            return False
+        
+        for part in parts:
+            if not part.isdigit():
+                return False
+            if int(part) > 255:
+                return False
+        
+        return True
+
 class SettingsPage(Popup):
     """Страница настроек"""
+    
+    # Переменные класса для сохранения между сессиями
+    saved_asic_ip = '192.168.1.100'
+    saved_temperature_method = 'Температура жидкости с ASIC'
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -179,6 +369,17 @@ class SettingsPage(Popup):
         self.title = 'Настройки системы'
         self.size_hint = (0.95, 0.95)
         self.auto_dismiss = False
+        
+        # Переменные для повторяющегося изменения
+        self.repeat_event = None
+        self.repeat_temp_type = None
+        self.repeat_change = None
+        
+        # Инициализация метода получения температуры из сохраненного значения
+        self.temperature_method = SettingsPage.saved_temperature_method
+        
+        # Инициализация IP адреса ASIC из сохраненного значения
+        self.asic_ip = SettingsPage.saved_asic_ip
         
         # Получение текущих настроек температуры
         temp_settings = get_temperature_settings()
@@ -198,19 +399,15 @@ class SettingsPage(Popup):
         temp_section = self._create_temperature_section()
         main_layout.add_widget(temp_section)
         
-        # Секция метода получения температуры (заглушка)
+        # Секция метода получения температуры
         method_section = self._create_method_section()
         main_layout.add_widget(method_section)
         
-        # Секция IP адреса асика (заглушка)
+        # Секция IP адреса асика
         ip_section = self._create_ip_section()
         main_layout.add_widget(ip_section)
         
-        # Секция темы (заглушка)
-        theme_section = self._create_theme_section()
-        main_layout.add_widget(theme_section)
-        
-        # Секция полноэкранного режима (заглушка)
+        # Секция полноэкранного режима
         fullscreen_section = self._create_fullscreen_section()
         main_layout.add_widget(fullscreen_section)
         
@@ -271,28 +468,41 @@ class SettingsPage(Popup):
         )
         max_layout.add_widget(max_title)
         
-        self.max_slider = Slider(
-            min=35.0,
-            max=70.0,
-            value=self.max_temp,
-            step=0.1,
-            size_hint_y=None,
-            height=dp(40)
+        # Контейнер для кнопок и значения верхнего порога
+        max_control_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(40))
+        
+        max_minus_btn = Button(
+            text='-',
+            size_hint_x=None,
+            width=dp(50),
+            font_size=dp(24),
+            background_color=(0.8, 0.3, 0.3, 1)
         )
+        max_minus_btn.bind(on_press=lambda x: self.start_repeat_change('max', -0.1))
+        max_minus_btn.bind(on_release=lambda x: self.stop_repeat_change())
         
         self.max_value_label = Label(
             text=f'{self.max_temp:.1f}°C',
             font_size=dp(18),
-            size_hint_y=None,
-            height=dp(30),
             color=(1, 0.6, 0.4, 1),
             bold=True
         )
         
-        self.max_slider.bind(value=self.on_max_slider_value)
+        max_plus_btn = Button(
+            text='+',
+            size_hint_x=None,
+            width=dp(50),
+            font_size=dp(24),
+            background_color=(0.3, 0.8, 0.3, 1)
+        )
+        max_plus_btn.bind(on_press=lambda x: self.start_repeat_change('max', 0.1))
+        max_plus_btn.bind(on_release=lambda x: self.stop_repeat_change())
         
-        max_layout.add_widget(self.max_slider)
-        max_layout.add_widget(self.max_value_label)
+        max_control_layout.add_widget(max_minus_btn)
+        max_control_layout.add_widget(self.max_value_label)
+        max_control_layout.add_widget(max_plus_btn)
+        
+        max_layout.add_widget(max_control_layout)
         section.add_widget(max_layout)
         
         # Нижний порог температуры
@@ -307,28 +517,41 @@ class SettingsPage(Popup):
         )
         min_layout.add_widget(min_title)
         
-        self.min_slider = Slider(
-            min=20.0,
-            max=60.0,
-            value=self.min_temp,
-            step=0.1,
-            size_hint_y=None,
-            height=dp(40)
+        # Контейнер для кнопок и значения нижнего порога
+        min_control_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(40))
+        
+        min_minus_btn = Button(
+            text='-',
+            size_hint_x=None,
+            width=dp(50),
+            font_size=dp(24),
+            background_color=(0.8, 0.3, 0.3, 1)
         )
+        min_minus_btn.bind(on_press=lambda x: self.start_repeat_change('min', -0.1))
+        min_minus_btn.bind(on_release=lambda x: self.stop_repeat_change())
         
         self.min_value_label = Label(
             text=f'{self.min_temp:.1f}°C',
             font_size=dp(18),
-            size_hint_y=None,
-            height=dp(30),
             color=(0.4, 0.8, 1, 1),
             bold=True
         )
         
-        self.min_slider.bind(value=self.on_min_slider_value)
+        min_plus_btn = Button(
+            text='+',
+            size_hint_x=None,
+            width=dp(50),
+            font_size=dp(24),
+            background_color=(0.3, 0.8, 0.3, 1)
+        )
+        min_plus_btn.bind(on_press=lambda x: self.start_repeat_change('min', 0.1))
+        min_plus_btn.bind(on_release=lambda x: self.stop_repeat_change())
         
-        min_layout.add_widget(self.min_slider)
-        min_layout.add_widget(self.min_value_label)
+        min_control_layout.add_widget(min_minus_btn)
+        min_control_layout.add_widget(self.min_value_label)
+        min_control_layout.add_widget(min_plus_btn)
+        
+        min_layout.add_widget(min_control_layout)
         section.add_widget(min_layout)
         
         # Сообщение о валидации
@@ -346,62 +569,50 @@ class SettingsPage(Popup):
         return section
     
     def _create_method_section(self):
-        """Создание секции метода получения температуры (заглушка)"""
+        """Создание секции метода получения температуры"""
         section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(100))
         
         section.add_widget(self._create_section_header('Метод получения температуры'))
         
-        method_spinner = Spinner(
-            text='DS18B20 (по умолчанию)',
-            values=['DS18B20 (по умолчанию)', 'Термопара K-типа', 'Цифровой датчик'],
+        self.method_spinner = Spinner(
+            text=self.temperature_method,  # Используем сохраненное значение
+            values=['Температура жидкости с ASIC', 'Внешний датчик температуры'],
             size_hint_y=None,
             height=dp(40),
             background_color=(0.3, 0.3, 0.3, 1)
         )
+        # Привязываем обработчик изменения метода
+        self.method_spinner.bind(text=self.on_method_change)
         
-        section.add_widget(method_spinner)
+        section.add_widget(self.method_spinner)
         
         return section
     
     def _create_ip_section(self):
-        """Создание секции IP адреса асика (заглушка)"""
+        """Создание секции IP адреса асика"""
         section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(100))
         
         section.add_widget(self._create_section_header('IP адрес ASIC устройства'))
         
-        ip_input = TextInput(
-            text='192.168.1.100',
+        self.ip_input = TextInput(
+            text=self.asic_ip,
             multiline=False,
             size_hint_y=None,
             height=dp(40),
             background_color=(0.3, 0.3, 0.3, 1),
-            foreground_color=(1, 1, 1, 1)
+            foreground_color=(1, 1, 1, 1),
+            readonly=True,  # Делаем поле только для чтения
+            font_size=dp(16)
         )
+        # Привязываем открытие виртуальной клавиатуры при нажатии
+        self.ip_input.bind(on_touch_down=self.on_ip_input_touch)
         
-        section.add_widget(ip_input)
-        
-        return section
-    
-    def _create_theme_section(self):
-        """Создание секции темы (заглушка)"""
-        section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(100))
-        
-        section.add_widget(self._create_section_header('Тема интерфейса'))
-        
-        theme_spinner = Spinner(
-            text='Темная (по умолчанию)',
-            values=['Темная (по умолчанию)', 'Светлая', 'Синяя', 'Зеленая'],
-            size_hint_y=None,
-            height=dp(40),
-            background_color=(0.3, 0.3, 0.3, 1)
-        )
-        
-        section.add_widget(theme_spinner)
+        section.add_widget(self.ip_input)
         
         return section
     
     def _create_fullscreen_section(self):
-        """Создание секции полноэкранного режима (заглушка)"""
+        """Создание секции полноэкранного режима"""
         section = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(80))
         
         label = Label(
@@ -411,27 +622,77 @@ class SettingsPage(Popup):
             size_hint_x=0.7
         )
         
-        fullscreen_switch = Switch(
-            active=False,
+        # Получаем текущее состояние полноэкранного режима
+        current_fullscreen = Window.fullscreen
+        
+        self.fullscreen_switch = Switch(
+            active=current_fullscreen,
             size_hint_x=0.3
         )
+        # Привязываем переключатель к методу обработки
+        self.fullscreen_switch.bind(active=self.on_fullscreen_toggle)
         
         section.add_widget(label)
-        section.add_widget(fullscreen_switch)
+        section.add_widget(self.fullscreen_switch)
         
         return section
     
+    def on_min_button_change(self, change):
+        """Изменение значения минимальной температуры кнопками"""
+        new_value = self.min_temp + change
+        # Ограничиваем диапазон от 0 до 100 градусов
+        if new_value >= 0.0 and new_value <= 100.0:
+            self.min_temp = round(new_value, 1)
+            self.min_value_label.text = f'{self.min_temp:.1f}°C'
+            self.validate_temperature_settings()
+    
+    def on_max_button_change(self, change):
+        """Изменение значения максимальной температуры кнопками"""
+        new_value = self.max_temp + change
+        # Ограничиваем диапазон от 0 до 100 градусов
+        if new_value >= 0.0 and new_value <= 100.0:
+            self.max_temp = round(new_value, 1)
+            self.max_value_label.text = f'{self.max_temp:.1f}°C'
+            self.validate_temperature_settings()
+    
     def on_min_slider_value(self, instance, value):
-        """Обновление значения минимальной температуры"""
-        self.min_temp = value
-        self.min_value_label.text = f'{value:.1f}°C'
-        self.validate_temperature_settings()
+        """Обновление значения минимальной температуры (заглушка для совместимости)"""
+        pass
     
     def on_max_slider_value(self, instance, value):
-        """Обновление значения максимальной температуры"""
-        self.max_temp = value
-        self.max_value_label.text = f'{value:.1f}°C'
-        self.validate_temperature_settings()
+        """Обновление значения максимальной температуры (заглушка для совместимости)"""
+        pass
+    
+    def start_repeat_change(self, temp_type, change):
+        """Начало повторяющегося изменения температуры при зажатии кнопки"""
+        # Сразу делаем первое изменение
+        if temp_type == 'min':
+            self.on_min_button_change(change)
+        else:
+            self.on_max_button_change(change)
+        
+        # Сохраняем параметры для повторения
+        self.repeat_temp_type = temp_type
+        self.repeat_change = change
+        
+        # Запускаем таймер повторения с интервалом 0.1 секунды
+        self.repeat_event = Clock.schedule_interval(self.repeat_temperature_change, 0.1)
+    
+    def stop_repeat_change(self):
+        """Остановка повторяющегося изменения при отпускании кнопки"""
+        if self.repeat_event:
+            self.repeat_event.cancel()
+            self.repeat_event = None
+            self.repeat_temp_type = None
+            self.repeat_change = None
+    
+    def repeat_temperature_change(self, dt):
+        """Повторяющееся изменение температуры"""
+        if self.repeat_temp_type == 'min':
+            self.on_min_button_change(self.repeat_change)
+        elif self.repeat_temp_type == 'max':
+            self.on_max_button_change(self.repeat_change)
+        return True
     
     def validate_temperature_settings(self):
         """Валидация настроек температуры"""
@@ -443,9 +704,20 @@ class SettingsPage(Popup):
             self.temp_error_label.text = f'Диапазон: {difference:.1f}°C'
             self.temp_error_label.color = (0.4, 1, 0.4, 1)
     
+    def on_method_change(self, instance, text):
+        """Обработка изменения метода получения температуры"""
+        self.temperature_method = text
+        print(f"Выбран метод получения температуры: {text}")
+        
+        # Можно добавить дополнительную логику в зависимости от метода
+        if text == 'Температура жидкости с ASIC':
+            print("Будет использоваться температура с ASIC")
+        elif text == 'Внешний датчик температуры':
+            print("Будет использоваться внешний датчик температуры")
+
     def save_settings(self, instance):
         """Сохранение настроек"""
-        # Сохраняем только температурные настройки (остальные - заглушки)
+        # Сохраняем температурные настройки
         if self.min_temp < self.max_temp:
             success = set_temperature_settings(
                 max_temp=self.max_temp,
@@ -458,8 +730,38 @@ class SettingsPage(Popup):
             else:
                 print("Ошибка при сохранении температурных настроек")
         
-        print("Остальные настройки пока недоступны (заглушки)")
+        # Сохраняем метод получения температуры в переменную класса
+        SettingsPage.saved_temperature_method = self.temperature_method
+        print(f"Метод получения температуры сохранен: {self.temperature_method}")
+        
+        # Сохраняем IP адрес ASIC в переменную класса
+        self.asic_ip = self.ip_input.text
+        SettingsPage.saved_asic_ip = self.asic_ip
+        print(f"IP адрес ASIC устройства сохранен: {self.asic_ip}")
+        
+        print("Настройки сохранены успешно!")
         self.dismiss()
+
+    def on_fullscreen_toggle(self, instance, value):
+        """Обработка переключения полноэкранного режима"""
+        try:
+            Window.fullscreen = value
+            if value:
+                print("Включен полноэкранный режим")
+            else:
+                print("Выключен полноэкранный режим")
+        except Exception as e:
+            print(f"Ошибка при переключении полноэкранного режима: {e}")
+            # Возвращаем переключатель в исходное состояние при ошибке
+            instance.active = not value
+
+    def on_ip_input_touch(self, instance, touch):
+        """Обработка нажатия на поле ввода IP"""
+        if instance.collide_point(touch.x, touch.y):
+            keyboard = NumericKeyboard(instance)
+            keyboard.open()
+            return True
+        return False
 
 class TemperatureControllerGUI(App):
     """Главное приложение GUI"""
@@ -469,6 +771,9 @@ class TemperatureControllerGUI(App):
         # Настройка окна для полноэкранного режима
         Window.fullscreen = False  # Можно изменить на True для реального использования
         Window.size = (800, 480)  # Типичный размер для 7" дисплея
+        
+        # Привязка обработки клавиш для переключения полноэкранного режима
+        Window.bind(on_key_down=self.on_key_down)
         
         # Основной контейнер с наложением (FloatLayout для размещения элементов)
         root_layout = FloatLayout()
@@ -557,6 +862,25 @@ class TemperatureControllerGUI(App):
         """Открытие страницы настроек"""
         popup = SettingsPage()
         popup.open()
+
+    def on_key_down(self, instance, keycode, *args):
+        """Обработка нажатия клавиш"""
+        # F11 для переключения полноэкранного режима
+        if keycode[1] == 'f11':
+            self.toggle_fullscreen()
+            return True
+        return False
+
+    def toggle_fullscreen(self):
+        """Переключение полноэкранного режима"""
+        try:
+            Window.fullscreen = not Window.fullscreen
+            if Window.fullscreen:
+                print("Включен полноэкранный режим (F11)")
+            else:
+                print("Выключен полноэкранный режим (F11)")
+        except Exception as e:
+            print(f"Ошибка при переключении полноэкранного режима: {e}")
 
 def main():
     """Запуск GUI приложения"""
