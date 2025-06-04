@@ -1,8 +1,8 @@
 {
   "version": "1.0",
-  "last_updated": "2025-06-02T00:40:23.531331",
+  "last_updated": "2025-06-04T12:00:17.448715",
   "temperature_settings": {
-    "min_temp": 49.9,
+    "min_temp": 45.0,
     "max_temp": 50.0
   },
   "metadata": {

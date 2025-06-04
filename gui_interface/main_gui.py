@@ -786,7 +786,7 @@ class TemperatureControllerGUI(App):
         root_layout.add_widget(self.temp_card)
         
         # Лого в верхней части экрана по центру
-        logo_path = '/home/user/CONTROLLER/gui_interface/images/Transparent Logo.png'
+        logo_path = '/home/user/CONTROLLER/gui_interface/images/ChatGPT Image 4 июн. 2025 г., 19_33_12.png'
         self.logo = Image(
             source=logo_path,
             size_hint=(None, None),
