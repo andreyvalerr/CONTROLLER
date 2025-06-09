@@ -1,0 +1,29 @@
+[Unit]
+Description=Crypto Boiler Controller Service
+# Запускаться после сети и звука. Графическая среда будет обеспечена через WantedBy=graphical.target
+After=network.target sound.target
+
+[Service]
+# Запускать от имени пользователя 'user' и группы 'user'
+User=user
+Group=user
+
+# Рабочая директория
+WorkingDirectory=/home/user/CONTROLLER
+
+# Команда для запуска (наш скрипт-обертка)
+ExecStart=/bin/bash /home/user/CONTROLLER/start/start_controller.sh
+
+# Всегда перезапускать сервис в случае сбоя
+Restart=always
+# Пауза перед перезапуском
+RestartSec=5s
+
+# Переменные окружения для GUI
+Environment="DISPLAY=:0"
+# Раскомментируйте следующую строку, если потребуется XAUTHORITY
+# Environment="XAUTHORITY=/home/user/.Xauthority"
+
+[Install]
+# Запускать сервис, когда готова графическая среда
+WantedBy=graphical.target 
