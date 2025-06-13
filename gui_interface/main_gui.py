@@ -613,27 +613,43 @@ class SettingsPage(Popup):
     
     def _create_fullscreen_section(self):
         """Создание секции полноэкранного режима"""
-        section = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(80))
+        section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(120))
+        
+        # Заголовок секции
+        section.add_widget(self._create_section_header('Полноэкранный режим'))
+        
+        # Контейнер для переключателя
+        switch_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(50))
         
         label = Label(
             text='Полноэкранный режим',
-            font_size=dp(18),
+            font_size=dp(16),
             color=(1, 1, 1, 1),
             size_hint_x=0.7
         )
         
         # Получаем текущее состояние полноэкранного режима
+        # Обрабатываем различные возможные значения Window.fullscreen
         current_fullscreen = Window.fullscreen
+        if isinstance(current_fullscreen, str):
+            # Если fullscreen установлен как строка ('auto', 'fake', и т.д.), считаем это как True
+            switch_active = True
+        elif isinstance(current_fullscreen, bool):
+            switch_active = current_fullscreen
+        else:
+            # Для любых других значений по умолчанию False
+            switch_active = False
         
         self.fullscreen_switch = Switch(
-            active=current_fullscreen,
+            active=switch_active,
             size_hint_x=0.3
         )
         # Привязываем переключатель к методу обработки
         self.fullscreen_switch.bind(active=self.on_fullscreen_toggle)
         
-        section.add_widget(label)
-        section.add_widget(self.fullscreen_switch)
+        switch_layout.add_widget(label)
+        switch_layout.add_widget(self.fullscreen_switch)
+        section.add_widget(switch_layout)
         
         return section
     
@@ -745,10 +761,13 @@ class SettingsPage(Popup):
     def on_fullscreen_toggle(self, instance, value):
         """Обработка переключения полноэкранного режима"""
         try:
-            Window.fullscreen = value
             if value:
-                print("Включен полноэкранный режим")
+                # Включаем полноэкранный режим (используем 'auto' для лучшей совместимости)
+                Window.fullscreen = 'auto'
+                print("Включен полноэкранный режим (auto)")
             else:
+                # Выключаем полноэкранный режим
+                Window.fullscreen = False
                 print("Выключен полноэкранный режим")
         except Exception as e:
             print(f"Ошибка при переключении полноэкранного режима: {e}")
@@ -875,11 +894,18 @@ class TemperatureControllerGUI(App):
     def toggle_fullscreen(self):
         """Переключение полноэкранного режима"""
         try:
-            Window.fullscreen = not Window.fullscreen
-            if Window.fullscreen:
-                print("Включен полноэкранный режим (F11)")
-            else:
+            # Определяем текущее состояние
+            current_fullscreen = Window.fullscreen
+            is_fullscreen = current_fullscreen not in [False, 0]
+            
+            if is_fullscreen:
+                # Выключаем полноэкранный режим
+                Window.fullscreen = False
                 print("Выключен полноэкранный режим (F11)")
+            else:
+                # Включаем полноэкранный режим
+                Window.fullscreen = 'auto'
+                print("Включен полноэкранный режим (F11)")
         except Exception as e:
             print(f"Ошибка при переключении полноэкранного режима: {e}")
 
