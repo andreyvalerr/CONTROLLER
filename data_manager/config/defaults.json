@@ -5,6 +5,12 @@
     "min_temp": 44.9,
     "max_temp": 45.0
   },
+  "cooling_settings": {
+    "cooling_on": false
+  },
+  "mode_settings": {
+    "mode": "auto"
+  },
   "metadata": {
     "device_id": "raspberry_pi_01",
     "created_by": "core_system",

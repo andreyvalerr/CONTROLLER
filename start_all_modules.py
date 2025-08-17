@@ -51,7 +51,9 @@ def start_valve_control():
             start_temperature_data_provider,
             is_temperature_provider_running,
             get_temperature_for_valve_controller,
-            is_temperature_settings_available
+            is_temperature_settings_available,
+            register_valve_controller_instance,
+            initialize_mode_from_settings
         )
         from valve_control.valve_controller import ValveController, ValveControllerConfig
         from valve_control.config import load_config_from_env
@@ -86,6 +88,8 @@ def start_valve_control():
             temperature_callback=get_temperature_for_valve_controller,
             config=config
         )
+        # Регистрируем инстанс для внешнего управления (GUI)
+        register_valve_controller_instance(valve_controller_instance)
         
         # Синхронизация настроек температуры с data_manager
         if not valve_controller_instance.sync_temperature_settings_with_data_manager():
@@ -101,6 +105,22 @@ def start_valve_control():
         
         valve_thread = threading.Thread(target=run_valve_controller, daemon=True)
         valve_thread.start()
+
+        # Фоновая инициализация режима после старта контроллера
+        def apply_mode_when_ready():
+            try:
+                for _ in range(50):  # до ~10 секунд ожидания
+                    try:
+                        if valve_controller_instance and valve_controller_instance.is_running():
+                            initialize_mode_from_settings()
+                            return
+                    except Exception:
+                        pass
+                    time.sleep(0.2)
+            except Exception:
+                pass
+
+        threading.Thread(target=apply_mode_when_ready, daemon=True).start()
         
         print("✅ Valve Controller запущен и работает")
         return True

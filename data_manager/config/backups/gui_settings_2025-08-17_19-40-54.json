@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "last_updated": "2025-08-17T19:59:02.852205",
+  "last_updated": "2025-08-17T19:40:52.465942",
   "temperature_settings": {
     "min_temp": 51.9,
     "max_temp": 52.0
@@ -9,13 +9,13 @@
     "device_id": "raspberry_pi_01",
     "created_by": "settings_manager",
     "backup_count": 3,
-    "source": "cooling_update"
+    "source": "ip_update"
   },
   "ip_address_asic": "192.168.0.147",
   "mode_settings": {
     "mode": "manual"
   },
   "cooling_settings": {
-    "cooling_on": false
+    "cooling_on": true
   }
 }

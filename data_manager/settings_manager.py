@@ -49,18 +49,29 @@ class SettingsManager:
             bool: True если сохранение успешно
         """
         try:
-            # Валидация настроек
+            # Валидация температурных настроек (ожидается, что min/max будут переданы)
             if not self.validate_settings(settings_dict):
                 self._log_error("Настройки не прошли валидацию, сохранение отменено")
                 return False
-            
+
             # Создание резервной копии если файл существует
             if self.settings_file.exists():
                 if not self.create_backup(str(self.settings_file)):
                     self._log_error("Не удалось создать резервную копию, но продолжаем сохранение")
-            
-            # Подготовка данных для сохранения
-            save_data = {
+
+            # Загружаем существующие данные (для сохранения дополнительных полей, например IP и режим)
+            existing_data: Dict[str, Any] = {}
+            if self.settings_file.exists():
+                try:
+                    with open(self.settings_file, 'r', encoding='utf-8') as f:
+                        loaded = json.load(f)
+                        if isinstance(loaded, dict):
+                            existing_data = loaded
+                except Exception:
+                    existing_data = {}
+
+            # Базовая структура
+            save_data: Dict[str, Any] = {
                 "version": "1.0",
                 "last_updated": datetime.now().isoformat(),
                 "temperature_settings": {
@@ -75,17 +86,48 @@ class SettingsManager:
                 }
             }
 
-            # Если передан IP адрес ASIC, сохраняем его как отдельное поле верхнего уровня
+            # Переносим дополнительные поля из существующих данных, если они не переопределяются
+            # IP адрес ASIC
             if "ip_address_asic" in settings_dict and isinstance(settings_dict["ip_address_asic"], str):
                 save_data["ip_address_asic"] = settings_dict["ip_address_asic"]
-            
-            # Сохранение в файл
+            elif isinstance(existing_data.get("ip_address_asic"), str):
+                save_data["ip_address_asic"] = existing_data["ip_address_asic"]
+
+            # Режим работы (mode_settings)
+            incoming_mode = None
+            if "mode" in settings_dict and isinstance(settings_dict["mode"], str):
+                incoming_mode = settings_dict["mode"]
+            elif isinstance(settings_dict.get("mode_settings"), dict) and isinstance(settings_dict["mode_settings"].get("mode"), str):
+                incoming_mode = settings_dict["mode_settings"]["mode"]
+
+            if incoming_mode is not None:
+                save_data["mode_settings"] = {"mode": incoming_mode}
+            elif isinstance(existing_data.get("mode_settings"), dict) and isinstance(existing_data["mode_settings"].get("mode"), str):
+                save_data["mode_settings"] = {"mode": existing_data["mode_settings"]["mode"]}
+
+            # Состояние охлаждения (cooling_settings)
+            incoming_cooling = None
+            if isinstance(settings_dict.get("cooling_settings"), dict) and isinstance(settings_dict["cooling_settings"].get("cooling_on"), bool):
+                incoming_cooling = {"cooling_on": bool(settings_dict["cooling_settings"]["cooling_on"])}
+            elif isinstance(settings_dict.get("cooling_on"), bool):
+                incoming_cooling = {"cooling_on": bool(settings_dict["cooling_on"])}
+
+            if incoming_cooling is not None:
+                save_data["cooling_settings"] = incoming_cooling
+            elif isinstance(existing_data.get("cooling_settings"), dict) and isinstance(existing_data["cooling_settings"].get("cooling_on"), bool):
+                save_data["cooling_settings"] = {"cooling_on": existing_data["cooling_settings"]["cooling_on"]}
+
+            # Сохраняем в файл
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(save_data, f, indent=2, ensure_ascii=False)
-            
-            self._log_message(f"Настройки успешно сохранены: min_temp={save_data['temperature_settings']['min_temp']}, max_temp={save_data['temperature_settings']['max_temp']}")
+
+            self._log_message(
+                f"Настройки успешно сохранены: min_temp={save_data['temperature_settings']['min_temp']}, max_temp={save_data['temperature_settings']['max_temp']}"
+            )
+            if "mode_settings" in save_data:
+                self._log_message(f"Режим работы сохранен: {save_data['mode_settings'].get('mode')}")
             return True
-            
+
         except Exception as e:
             self._log_error(f"Ошибка при сохранении настроек: {e}")
             sys.exit(1)  # Аварийное завершение согласно инструкции
@@ -112,6 +154,96 @@ class SettingsManager:
         except Exception as e:
             self._log_error(f"Ошибка загрузки IP адреса ASIC: {e}")
             return None
+
+    def load_mode(self) -> Optional[str]:
+        """
+        Загрузка режима работы из gui_settings.json
+        
+        Returns:
+            Optional[str]: Строка режима (например, 'auto' или 'manual') или None
+        """
+        try:
+            if not self.settings_file.exists():
+                return None
+            with open(self.settings_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            mode_settings = data.get("mode_settings")
+            if isinstance(mode_settings, dict):
+                mode_value = mode_settings.get("mode")
+                if isinstance(mode_value, str) and mode_value:
+                    return mode_value
+            return None
+        except Exception as e:
+            self._log_error(f"Ошибка загрузки режима работы: {e}")
+            return None
+
+    def save_mode(self, mode_value: str) -> bool:
+        """
+        Сохранение режима работы в gui_settings.json с резервной копией.
+
+        Args:
+            mode_value: Строка режима ('auto' или 'manual', допускаются 'Авто'/'Ручной').
+
+        Returns:
+            bool: True если успешно сохранен
+        """
+        try:
+            # Нормализация значения ('Авто'/'Ручной' -> 'auto'/'manual')
+            normalized = mode_value.strip().lower()
+            if normalized in ("авто", "автоматический", "automatic"):
+                normalized = "auto"
+            elif normalized in ("ручной", "manual"):
+                normalized = "manual"
+
+            if normalized not in ("auto", "manual"):
+                self._log_error(f"Недопустимое значение режима: {mode_value}")
+                return False
+
+            # Подготовка данных: загружаем существующие либо базовую структуру
+            data: Dict[str, Any]
+            if self.settings_file.exists():
+                try:
+                    with open(self.settings_file, 'r', encoding='utf-8') as f:
+                        loaded = json.load(f)
+                        data = loaded if isinstance(loaded, dict) else {}
+                except Exception:
+                    data = {}
+            else:
+                # Если нет файла, создаем от defaults
+                if self.defaults_file.exists():
+                    with open(self.defaults_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if not isinstance(data, dict):
+                            data = {}
+                else:
+                    data = {}
+
+            # Базовые поля по умолчанию
+            data.setdefault("version", "1.0")
+            data["last_updated"] = datetime.now().isoformat()
+            data.setdefault("temperature_settings", {"min_temp": 45.0, "max_temp": 55.0})
+            data.setdefault("metadata", {})
+            data["metadata"]["device_id"] = data.get("metadata", {}).get("device_id", "raspberry_pi_01")
+            data["metadata"]["created_by"] = "settings_manager"
+            data["metadata"]["backup_count"] = data.get("metadata", {}).get("backup_count", 3)
+            data["metadata"]["source"] = "mode_update"
+
+            # Обновляем режим
+            data["mode_settings"] = {"mode": normalized}
+
+            # Создаем резервную копию, если файл существует
+            if self.settings_file.exists():
+                self.create_backup(str(self.settings_file))
+
+            # Сохраняем файл
+            with open(self.settings_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            self._log_message(f"Режим работы сохранен: {normalized}")
+            return True
+        except Exception as e:
+            self._log_error(f"Ошибка при сохранении режима работы: {e}")
+            return False
 
     def save_ip_address(self, ip_address: str) -> bool:
         """
@@ -163,6 +295,78 @@ class SettingsManager:
             return True
         except Exception as e:
             self._log_error(f"Ошибка сохранения IP адреса ASIC: {e}")
+            return False
+
+    def load_cooling_state(self) -> Optional[bool]:
+        """
+        Загрузка состояния охлаждения из gui_settings.json
+        
+        Returns:
+            Optional[bool]: True/False если сохранено, иначе None
+        """
+        try:
+            if not self.settings_file.exists():
+                return None
+            with open(self.settings_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            cooling = data.get("cooling_settings")
+            if isinstance(cooling, dict) and isinstance(cooling.get("cooling_on"), bool):
+                return bool(cooling["cooling_on"])
+            return None
+        except Exception as e:
+            self._log_error(f"Ошибка загрузки состояния охлаждения: {e}")
+            return None
+
+    def save_cooling_state(self, cooling_on: bool) -> bool:
+        """
+        Сохранение состояния охлаждения (кнопки) в gui_settings.json с резервной копией.
+
+        Args:
+            cooling_on: Текущее состояние охлаждения (True/False)
+
+        Returns:
+            bool: True если успешно сохранено
+        """
+        try:
+            # Загружаем существующий файл или создаем базовую структуру
+            if self.settings_file.exists():
+                with open(self.settings_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    data = {}
+            else:
+                data = {
+                    "version": "1.0",
+                    "temperature_settings": {
+                        "min_temp": 45.0,
+                        "max_temp": 55.0
+                    },
+                    "metadata": {
+                        "device_id": "raspberry_pi_01",
+                        "created_by": "settings_manager",
+                        "backup_count": 3,
+                        "source": "cooling_update"
+                    }
+                }
+
+            # Обновляем поля
+            data["cooling_settings"] = {"cooling_on": bool(cooling_on)}
+            data["last_updated"] = datetime.now().isoformat()
+            if "metadata" not in data or not isinstance(data["metadata"], dict):
+                data["metadata"] = {}
+            data["metadata"]["created_by"] = "settings_manager"
+            data["metadata"]["source"] = "cooling_update"
+
+            # Создаем резервную копию, если файл есть
+            if self.settings_file.exists():
+                self.create_backup(str(self.settings_file))
+
+            with open(self.settings_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            self._log_message(f"Состояние охлаждения сохранено: {'on' if cooling_on else 'off'}")
+            return True
+        except Exception as e:
+            self._log_error(f"Ошибка сохранения состояния охлаждения: {e}")
             return False
     
     def load_settings(self) -> Optional[Dict[str, Any]]:

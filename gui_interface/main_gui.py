@@ -172,6 +172,42 @@ class GearIcon(Button):
                 y2 = center_y + dp(22) * math.sin(angle)
                 Line(points=[x1, y1, x2, y2], width=3)
 
+class CoolingButton(Button):
+    """Большая кнопка 'ОХЛАЖДЕНИЕ' с кастомным стилем (красная, скруглённая, с обводкой)."""
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.text = 'ОХЛАЖДЕНИЕ'
+        self.bold = True
+        self.font_size = dp(28)
+        self.background_normal = ''
+        self.background_down = ''
+        self.background_color = (0, 0, 0, 0)
+        self.color = (0, 0, 0, 1)  # чёрный текст
+        self._radius = dp(20)
+        # По умолчанию считаем, что охлаждение выключено (красный)
+        self._fill_color = (0.95, 0.25, 0.25, 1)
+        self._border_color = (0, 0, 0, 1)
+        self._border_width = 3
+        self.bind(size=self._update_canvas, pos=self._update_canvas)
+        self._update_canvas()
+    
+    def _update_canvas(self, *args):
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(*self._fill_color)
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[self._radius])
+        self.canvas.after.clear()
+        with self.canvas.after:
+            Color(*self._border_color)
+            Line(rounded_rectangle=[self.x, self.y, self.width, self.height, self._radius], width=self._border_width)
+
+    def set_cooling_state(self, is_on: bool):
+        """Обновляет визуальный цвет: красный = выкл, зелёный = вкл."""
+        # Зелёный для включенного охлаждения, красный — выключено
+        self._fill_color = (0.30, 0.80, 0.30, 1) if is_on else (0.95, 0.25, 0.25, 1)
+        self._update_canvas()
+
 class NumericKeyboard(Popup):
     """Виртуальная клавиатура для ввода IP адреса"""
     
@@ -407,6 +443,19 @@ class SettingsPage(Popup):
         else:
             self.min_temp = 45.0
             self.max_temp = 55.0
+
+        # Инициализация режима работы (Авто/Ручной) из файла настроек
+        try:
+            from data_manager.settings_manager import get_settings_manager
+            sm = get_settings_manager()
+            mode_value = sm.load_mode()  # 'auto' | 'manual' | None
+        except Exception:
+            mode_value = None
+        if isinstance(mode_value, str) and mode_value.lower() == 'manual':
+            self.mode_display = 'Ручной'
+        else:
+            # по умолчанию Авто
+            self.mode_display = 'Авто'
         
         # Основной контейнер со скроллингом
         scroll = ScrollView()
@@ -420,6 +469,10 @@ class SettingsPage(Popup):
         # Секция метода получения температуры
         method_section = self._create_method_section()
         main_layout.add_widget(method_section)
+
+        # Секция режима работы
+        mode_section = self._create_mode_section()
+        main_layout.add_widget(mode_section)
         
         # Секция IP адреса асика
         ip_section = self._create_ip_section()
@@ -605,6 +658,23 @@ class SettingsPage(Popup):
         section.add_widget(self.method_spinner)
         
         return section
+
+    def _create_mode_section(self):
+        """Создание секции выбора режима работы"""
+        section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(100))
+        
+        section.add_widget(self._create_section_header('Режим'))
+        
+        self.mode_spinner = Spinner(
+            text=self.mode_display,
+            values=['Авто', 'Ручной'],
+            size_hint_y=None,
+            height=dp(40),
+            background_color=(0.3, 0.3, 0.3, 1)
+        )
+        section.add_widget(self.mode_spinner)
+        
+        return section
     
     def _create_ip_section(self):
         """Создание секции IP адреса асика"""
@@ -773,6 +843,44 @@ class SettingsPage(Popup):
         SettingsPage.saved_asic_ip = self.asic_ip
         print(f"IP адрес ASIC устройства сохранен: {self.asic_ip}")
 
+        # Сохраняем режим работы в gui_settings.json
+        try:
+            from data_manager.settings_manager import get_settings_manager
+            sm = get_settings_manager()
+            selected_text = getattr(self, 'mode_spinner', None).text if hasattr(self, 'mode_spinner') else 'Авто'
+            normalized = 'auto' if selected_text.strip().lower().startswith('авто') else 'manual'
+            if sm.save_mode(normalized):
+                print(f"Режим работы сохранен: {selected_text} ({normalized})")
+                # Применяем режим к модулю valve_control немедленно
+                try:
+                    if normalized == 'manual':
+                        from valve_control.data_manager_integration import set_manual_mode
+                        if set_manual_mode():
+                            print("valve_control переведён в ручной режим (охлаждение выключено)")
+                        else:
+                            print("Не удалось перевести valve_control в ручной режим")
+                    else:
+                        from valve_control.data_manager_integration import set_auto_mode
+                        if set_auto_mode():
+                            print("valve_control переведён в автоматический режим")
+                        else:
+                            print("Не удалось перевести valve_control в авто режим")
+                except Exception as e:
+                    print(f"Ошибка применения режима в valve_control: {e}")
+                # Обновляем локально состояние режима в главном приложении и применяем видимость кнопки
+                try:
+                    app = App.get_running_app()
+                    if app:
+                        setattr(app, 'current_mode', normalized)
+                        if hasattr(app, '_apply_mode_visibility'):
+                            app._apply_mode_visibility()
+                except Exception:
+                    pass
+            else:
+                print("Не удалось сохранить режим работы")
+        except Exception as e:
+            print(f"Ошибка сохранения режима работы: {e}")
+
         # Немедленно передаем IP адрес ASIC в data_manager
         try:
             if set_asic_ip(self.asic_ip, source_module="gui_interface"):
@@ -850,6 +958,37 @@ class TemperatureControllerGUI(App):
         )
         self.gear_icon.bind(on_press=self.open_settings_page)
         root_layout.add_widget(self.gear_icon)
+
+        # Кнопка 'ОХЛАЖДЕНИЕ' (по умолчанию скрыта, показывается в ручном режиме)
+        self.cooling_button = CoolingButton(
+            size_hint=(None, None),
+            size=(dp(240), dp(130)),
+            pos_hint={'right': 0.88, 'center_y': 0.56}
+        )
+        self.cooling_button.bind(on_press=self.on_cooling_button_press)
+        root_layout.add_widget(self.cooling_button)
+        self.current_mode = self._get_current_mode()
+        # Устанавливаем начальный цвет кнопки по фактическому состоянию охлаждения
+        try:
+            from valve_control.data_manager_integration import get_cooling_state
+            current = get_cooling_state()
+            if current is None:
+                # Фолбэк к сохраненному состоянию в settings
+                try:
+                    from data_manager.settings_manager import get_settings_manager
+                    sm = get_settings_manager()
+                    saved = sm.load_cooling_state()
+                    if isinstance(saved, bool):
+                        self.cooling_button.set_cooling_state(saved)
+                    else:
+                        self.cooling_button.set_cooling_state(False)
+                except Exception:
+                    self.cooling_button.set_cooling_state(False)
+            else:
+                self.cooling_button.set_cooling_state(bool(current))
+        except Exception:
+            self.cooling_button.set_cooling_state(False)
+        self._apply_mode_visibility()
         
         # НЕ запускаем core system из GUI - он должен быть уже запущен из start_all_modules.py
         # Проверяем только что система доступна
@@ -936,6 +1075,31 @@ class TemperatureControllerGUI(App):
 
             self.temp_card.update_data(display_temp)
             
+            # Проверяем изменения режима и обновляем видимость кнопки
+            new_mode = self._get_current_mode()
+            if new_mode != getattr(self, 'current_mode', None):
+                self.current_mode = new_mode
+                self._apply_mode_visibility()
+            # В ручном режиме периодически подтягиваем состояние охлаждения
+            if self.current_mode == 'manual':
+                try:
+                    from valve_control.data_manager_integration import get_cooling_state
+                    current = get_cooling_state()
+                    if current is not None:
+                        self.cooling_button.set_cooling_state(bool(current))
+                    else:
+                        # Фолбэк к сохраненному состоянию
+                        try:
+                            from data_manager.settings_manager import get_settings_manager
+                            sm = get_settings_manager()
+                            saved = sm.load_cooling_state()
+                            if isinstance(saved, bool):
+                                self.cooling_button.set_cooling_state(saved)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            
         except Exception as e:
             print(f"Ошибка обновления интерфейса: {e}")
     
@@ -969,6 +1133,75 @@ class TemperatureControllerGUI(App):
                 print("Включен полноэкранный режим (F11)")
         except Exception as e:
             print(f"Ошибка при переключении полноэкранного режима: {e}")
+
+    def _get_current_mode(self):
+        """Чтение текущего режима из gui_settings.json (auto/manual)."""
+        try:
+            from data_manager.settings_manager import get_settings_manager
+            sm = get_settings_manager()
+            mode_value = sm.load_mode()
+            if isinstance(mode_value, str) and mode_value.lower() in ('manual', 'auto'):
+                return mode_value.lower()
+        except Exception:
+            pass
+        return 'auto'
+
+    def _apply_mode_visibility(self):
+        """Показывает кнопку охлаждения только в ручном режиме."""
+        try:
+            is_manual = (self.current_mode == 'manual')
+            if hasattr(self, 'cooling_button') and self.cooling_button is not None:
+                self.cooling_button.opacity = 1.0 if is_manual else 0.0
+                self.cooling_button.disabled = not is_manual
+                # При появлении кнопки обновляем цвет по фактическому состоянию
+                if is_manual:
+                    try:
+                        from valve_control.data_manager_integration import get_cooling_state
+                        current = get_cooling_state()
+                        if current is not None:
+                            self.cooling_button.set_cooling_state(bool(current))
+                        else:
+                            # Фолбэк к сохраненному состоянию
+                            try:
+                                from data_manager.settings_manager import get_settings_manager
+                                sm = get_settings_manager()
+                                saved = sm.load_cooling_state()
+                                if isinstance(saved, bool):
+                                    self.cooling_button.set_cooling_state(saved)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"Ошибка применения режима отображения кнопки: {e}")
+
+    def on_cooling_button_press(self, instance):
+        """Обработка нажатия на кнопку 'ОХЛАЖДЕНИЕ' — переключение охлаждения в valve_control."""
+        try:
+            if self.current_mode != 'manual':
+                return
+            from valve_control.data_manager_integration import toggle_manual_cooling
+            if toggle_manual_cooling():
+                # После удачного переключения узнаём актуальное состояние и меняем цвет
+                try:
+                    from valve_control.data_manager_integration import get_cooling_state
+                    current = get_cooling_state()
+                    if current is not None:
+                        self.cooling_button.set_cooling_state(bool(current))
+                        # Сохраняем состояние в gui_settings.json
+                        try:
+                            from data_manager.settings_manager import get_settings_manager
+                            sm = get_settings_manager()
+                            sm.save_cooling_state(bool(current))
+                        except Exception as e:
+                            print(f"Ошибка сохранения состояния охлаждения: {e}")
+                except Exception:
+                    pass
+                print("Переключение охлаждения отправлено в valve_control")
+            else:
+                print("Не удалось переключить охлаждение (valve_control)")
+        except Exception as e:
+            print(f"Ошибка при переключении охлаждения: {e}")
 
 def main():
     """Запуск GUI приложения"""

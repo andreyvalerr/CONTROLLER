@@ -180,6 +180,11 @@ class TemperatureDataProvider:
 _global_temperature_provider = None
 _provider_lock = threading.Lock()
 
+# Глобальная ссылка на инстанс ValveController и управление режимом
+_controller_instance = None
+_controller_lock = threading.Lock()
+_is_manual_mode = False
+
 
 def start_temperature_data_provider(update_interval: float = 1.0) -> bool:
     """
@@ -199,6 +204,130 @@ def start_temperature_data_provider(update_interval: float = 1.0) -> bool:
         
         _global_temperature_provider = TemperatureDataProvider(update_interval)
         return _global_temperature_provider.start()
+
+
+def register_valve_controller_instance(controller) -> None:
+    """Регистрация экземпляра ValveController для внешнего управления из GUI."""
+    global _controller_instance
+    with _controller_lock:
+        _controller_instance = controller
+
+
+def _get_controller():
+    """Получение текущего зарегистрированного контроллера (или None)."""
+    global _controller_instance
+    with _controller_lock:
+        return _controller_instance
+
+
+def set_manual_mode() -> bool:
+    """
+    Переводит контроллер клапанов в ручной режим и выключает охлаждение по умолчанию.
+    """
+    global _is_manual_mode
+    controller = _get_controller()
+    if controller is None:
+        print("[valve_control] Невозможно включить ручной режим: контроллер не зарегистрирован")
+        return False
+    try:
+        ok = controller.manual_cooling_off()
+        _is_manual_mode = True if ok else _is_manual_mode
+        return ok
+    except Exception as e:
+        print(f"[valve_control] Ошибка установки ручного режима: {e}")
+        return False
+
+
+def set_auto_mode() -> bool:
+    """Переводит контроллер в автоматический режим (возобновляет регулятор)."""
+    global _is_manual_mode
+    controller = _get_controller()
+    if controller is None:
+        print("[valve_control] Невозможно включить авто режим: контроллер не зарегистрирован")
+        return False
+    try:
+        ok = controller.resume_automatic_control()
+        if ok:
+            _is_manual_mode = False
+        return ok
+    except Exception as e:
+        print(f"[valve_control] Ошибка установки авто режима: {e}")
+        return False
+
+
+def is_manual_mode() -> bool:
+    """Возвращает текущий локальный флаг ручного режима."""
+    return _is_manual_mode
+
+
+def set_manual_cooling(state: bool) -> bool:
+    """Вручную включает/выключает охлаждение. Требуется ручной режим."""
+    controller = _get_controller()
+    if controller is None:
+        print("[valve_control] Невозможно управлять охлаждением: контроллер не зарегистрирован")
+        return False
+    if not _is_manual_mode:
+        print("[valve_control] Игнор: ручное управление доступно только в ручном режиме")
+        return False
+    try:
+        return controller.manual_cooling_on() if state else controller.manual_cooling_off()
+    except Exception as e:
+        print(f"[valve_control] Ошибка ручного управления охлаждением: {e}")
+        return False
+
+
+def toggle_manual_cooling() -> bool:
+    """Переключает состояние охлаждения в ручном режиме."""
+    controller = _get_controller()
+    if controller is None:
+        print("[valve_control] Невозможно переключить охлаждение: контроллер не зарегистрирован")
+        return False
+    if not _is_manual_mode:
+        print("[valve_control] Игнор: переключение доступно только в ручном режиме")
+        return False
+    try:
+        return controller.relay_controller.toggle()
+    except Exception as e:
+        print(f"[valve_control] Ошибка переключения охлаждения: {e}")
+        return False
+
+
+def get_cooling_state() -> Optional[bool]:
+    """Возвращает текущее состояние охлаждения (True/False) или None."""
+    controller = _get_controller()
+    if controller is None:
+        return None
+    try:
+        return controller.is_cooling_active()
+    except Exception:
+        return None
+
+
+def initialize_mode_from_settings() -> bool:
+    """
+    Инициализирует режим работы на основании настроек GUI.
+    Если в настройках 'manual' — ручной режим (охлаждение выкл), иначе авто.
+    """
+    try:
+        from data_manager.settings_manager import get_settings_manager
+        sm = get_settings_manager()
+        mode = sm.load_mode()
+        saved_cooling = sm.load_cooling_state()
+        if isinstance(mode, str) and mode.lower() == 'manual':
+            ok = set_manual_mode()
+            # Если удалось перейти в ручной режим и есть сохранённое состояние — применим его
+            if ok and isinstance(saved_cooling, bool):
+                try:
+                    set_manual_cooling(saved_cooling)
+                    print(f"[valve_control] Применено сохранённое состояние охлаждения: {'ON' if saved_cooling else 'OFF'}")
+                except Exception:
+                    pass
+            return ok
+        else:
+            return set_auto_mode()
+    except Exception as e:
+        print(f"[valve_control] Не удалось инициализировать режим из настроек: {e}")
+        return False
 
 
 def stop_temperature_data_provider():
