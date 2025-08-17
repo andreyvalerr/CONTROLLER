@@ -39,7 +39,8 @@ from data_manager.core_system import (
     get_core_instance,
     start_core_system,
     is_core_system_running,
-    set_asic_ip
+    set_asic_ip,
+    get_asic_ip
 )
 
 class TemperatureCard(BoxLayout):
@@ -379,8 +380,24 @@ class SettingsPage(Popup):
         # Инициализация метода получения температуры из сохраненного значения
         self.temperature_method = SettingsPage.saved_temperature_method
         
-        # Инициализация IP адреса ASIC из сохраненного значения
-        self.asic_ip = SettingsPage.saved_asic_ip
+        # Инициализация IP адреса ASIC: пробуем взять из data_manager или из файла настроек
+        loaded_ip = None
+        try:
+            loaded_ip = get_asic_ip()
+        except Exception:
+            loaded_ip = None
+        if not loaded_ip:
+            try:
+                from data_manager.settings_manager import get_settings_manager
+                sm = get_settings_manager()
+                loaded_ip = sm.load_ip_address()
+            except Exception:
+                loaded_ip = None
+        if isinstance(loaded_ip, str) and loaded_ip:
+            self.asic_ip = loaded_ip
+            SettingsPage.saved_asic_ip = loaded_ip
+        else:
+            self.asic_ip = SettingsPage.saved_asic_ip
         
         # Получение текущих настроек температуры
         temp_settings = get_temperature_settings()
