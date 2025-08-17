@@ -60,10 +60,23 @@ class TemperatureMonitor:
         """Добавление колбэка для ошибок"""
         self.error_callbacks.append(callback)
     
+    def _resolve_current_ip(self) -> str:
+        """Возвращает актуальный IP из data_manager, либо fallback на self.ip_address."""
+        try:
+            # Локальный импорт, чтобы избежать циклических зависимостей
+            from data_manager.core_system import get_asic_ip
+            ip = get_asic_ip()
+            if isinstance(ip, str) and ip:
+                return ip
+        except Exception:
+            pass
+        return self.ip_address
+
     def get_temperature_reading(self) -> Optional[TemperatureData]:
         """Получение одного измерения температуры (как в простом тесте)"""
+        current_ip = self._resolve_current_ip()
         api = WhatsminerAPIv3(self.account, self.password)
-        tcp = WhatsminerTCP(self.ip_address, 4433, self.account, self.password)
+        tcp = WhatsminerTCP(current_ip, 4433, self.account, self.password)
         
         try:
             self.total_requests += 1

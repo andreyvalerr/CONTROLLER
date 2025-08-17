@@ -74,6 +74,10 @@ class SettingsManager:
                     "source": settings_dict.get("source", "unknown")
                 }
             }
+
+            # Если передан IP адрес ASIC, сохраняем его как отдельное поле верхнего уровня
+            if "ip_address_asic" in settings_dict and isinstance(settings_dict["ip_address_asic"], str):
+                save_data["ip_address_asic"] = settings_dict["ip_address_asic"]
             
             # Сохранение в файл
             with open(self.settings_file, 'w', encoding='utf-8') as f:
@@ -85,6 +89,81 @@ class SettingsManager:
         except Exception as e:
             self._log_error(f"Ошибка при сохранении настроек: {e}")
             sys.exit(1)  # Аварийное завершение согласно инструкции
+
+    def load_ip_address(self) -> Optional[str]:
+        """
+        Загрузка IP адреса ASIC из файла temperature_settings.json
+        
+        Returns:
+            Optional[str]: IP адрес или None, если не найден
+        """
+        try:
+            if not self.settings_file.exists():
+                return None
+            with open(self.settings_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            ip = data.get("ip_address_asic")
+            if isinstance(ip, str) and ip:
+                return ip
+            # Возможная совместимость, если IP когда-то сохраняли внутри temperature_settings
+            ts = data.get("temperature_settings", {})
+            ip_alt = ts.get("ip_address_asic") if isinstance(ts, dict) else None
+            return ip_alt if isinstance(ip_alt, str) and ip_alt else None
+        except Exception as e:
+            self._log_error(f"Ошибка загрузки IP адреса ASIC: {e}")
+            return None
+
+    def save_ip_address(self, ip_address: str) -> bool:
+        """
+        Сохранение/обновление IP адреса ASIC в temperature_settings.json
+        
+        Args:
+            ip_address: IPv4 адрес ASIC
+        
+        Returns:
+            bool: True если успешно сохранен
+        """
+        try:
+            # Загружаем существующий файл или создаем базовую структуру
+            if self.settings_file.exists():
+                with open(self.settings_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    data = {}
+            else:
+                data = {
+                    "version": "1.0",
+                    "temperature_settings": {
+                        "min_temp": 45.0,
+                        "max_temp": 55.0
+                    },
+                    "metadata": {
+                        "device_id": "raspberry_pi_01",
+                        "created_by": "settings_manager",
+                        "backup_count": 3,
+                        "source": "ip_update"
+                    }
+                }
+
+            # Обновляем поля
+            data["ip_address_asic"] = ip_address
+            data["last_updated"] = datetime.now().isoformat()
+            if "metadata" not in data or not isinstance(data["metadata"], dict):
+                data["metadata"] = {}
+            data["metadata"]["created_by"] = "settings_manager"
+            data["metadata"]["source"] = "ip_update"
+
+            # Создаем резервную копию, если файл есть
+            if self.settings_file.exists():
+                self.create_backup(str(self.settings_file))
+
+            with open(self.settings_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            self._log_message(f"IP адрес ASIC сохранен в settings: {ip_address}")
+            return True
+        except Exception as e:
+            self._log_error(f"Ошибка сохранения IP адреса ASIC: {e}")
+            return False
     
     def load_settings(self) -> Optional[Dict[str, Any]]:
         """

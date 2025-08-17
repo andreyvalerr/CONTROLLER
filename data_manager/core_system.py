@@ -366,6 +366,19 @@ class CoreSystem:
                 )
                 
                 print(f"Настройки температуры загружены: min={settings['min_temp']}°C, max={settings['max_temp']}°C")
+
+            # Загружаем IP адрес ASIC из файла, если он сохранен, и публикуем в data_manager
+            ip_addr = self.settings_manager.load_ip_address()
+            if isinstance(ip_addr, str) and ip_addr:
+                # Переопределяем IP, который будет использоваться при запуске мониторинга
+                self.temperature_ip = ip_addr
+                self.data_manager.set_data(
+                    DataType.IP_ADDRESS_ASIC,
+                    ip_addr,
+                    "settings_manager",
+                    {"loaded_from_file": True, "updated_at": datetime.now().isoformat()}
+                )
+                print(f"IP адрес ASIC загружен из настроек: {ip_addr}")
             
         except Exception as e:
             self._log_error(f"Ошибка при загрузке настроек температуры: {e}")
@@ -631,3 +644,47 @@ def get_temperature_settings_file_info() -> Dict[str, Any]:
     if core:
         return core.get_settings_file_info()
     return {"exists": False, "error": "Core system not available"} 
+
+
+# Работа с IP адресом ASIC (ip_address_asic)
+def set_asic_ip(ip_address: str, source_module: str = "external") -> bool:
+    """
+    Установка IP адреса ASIC в data_manager
+    
+    Args:
+        ip_address: Строка IP адреса (формат IPv4)
+        source_module: Источник данных (например, "gui_interface")
+    
+    Returns:
+        bool: True если значение сохранено
+    """
+    global _global_core_system
+    if not _global_core_system:
+        return False
+    try:
+        saved_to_dm = _global_core_system.data_manager.set_data(
+            DataType.IP_ADDRESS_ASIC,
+            ip_address,
+            source_module,
+            {"updated_at": datetime.now().isoformat()}
+        )
+        # Обновляем текущий IP ядра для нового запуска мониторинга/переподключений
+        _global_core_system.temperature_ip = ip_address
+        # Сохраняем IP в файле настроек
+        _global_core_system.settings_manager.save_ip_address(ip_address)
+        return saved_to_dm
+    except Exception:
+        return False
+
+
+def get_asic_ip() -> Optional[str]:
+    """
+    Получение текущего IP адреса ASIC из data_manager
+    
+    Returns:
+        Optional[str]: IP адрес или None, если не установлен
+    """
+    core = get_core_instance()
+    if core:
+        return core.data_manager.get_value(DataType.IP_ADDRESS_ASIC)
+    return None

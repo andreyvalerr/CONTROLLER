@@ -19,6 +19,7 @@ class DataType(Enum):
     VALVE_POSITION = "valve_position"
     SYSTEM_STATUS = "system_status"
     ERROR = "error"
+    IP_ADDRESS_ASIC = "ip_address_asic"
 
 
 @dataclass

@@ -38,7 +38,8 @@ from data_manager.core_system import (
     get_temperature_data,
     get_core_instance,
     start_core_system,
-    is_core_system_running
+    is_core_system_running,
+    set_asic_ip
 )
 
 class TemperatureCard(BoxLayout):
@@ -754,6 +755,15 @@ class SettingsPage(Popup):
         self.asic_ip = self.ip_input.text
         SettingsPage.saved_asic_ip = self.asic_ip
         print(f"IP адрес ASIC устройства сохранен: {self.asic_ip}")
+
+        # Немедленно передаем IP адрес ASIC в data_manager
+        try:
+            if set_asic_ip(self.asic_ip, source_module="gui_interface"):
+                print(f"IP адрес ASIC передан в data_manager: {self.asic_ip}")
+            else:
+                print("Не удалось передать IP адрес ASIC в data_manager")
+        except Exception as e:
+            print(f"Ошибка передачи IP адреса ASIC в data_manager: {e}")
         
         print("Настройки сохранены успешно!")
         self.dismiss()
