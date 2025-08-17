@@ -28,7 +28,7 @@ class SettingsManager:
             config_dir = os.path.join(current_dir, "config")
         
         self.config_dir = Path(config_dir)
-        self.settings_file = self.config_dir / "temperature_settings.json"
+        self.settings_file = self.config_dir / "gui_settings.json"
         self.defaults_file = self.config_dir / "defaults.json"
         self.backups_dir = self.config_dir / "backups"
         
@@ -92,7 +92,7 @@ class SettingsManager:
 
     def load_ip_address(self) -> Optional[str]:
         """
-        Загрузка IP адреса ASIC из файла temperature_settings.json
+        Загрузка IP адреса ASIC из файла gui_settings.json
         
         Returns:
             Optional[str]: IP адрес или None, если не найден
@@ -115,7 +115,7 @@ class SettingsManager:
 
     def save_ip_address(self, ip_address: str) -> bool:
         """
-        Сохранение/обновление IP адреса ASIC в temperature_settings.json
+        Сохранение/обновление IP адреса ASIC в gui_settings.json
         
         Args:
             ip_address: IPv4 адрес ASIC
@@ -285,7 +285,7 @@ class SettingsManager:
             
             # Создание имени резервной копии с timestamp
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            backup_name = f"temperature_settings_{timestamp}.json"
+            backup_name = f"gui_settings_{timestamp}.json"
             backup_path = self.backups_dir / backup_name
             
             # Копирование файла
@@ -305,15 +305,18 @@ class SettingsManager:
     def _cleanup_old_backups(self):
         """Удаление старых резервных копий (хранить последние 5)"""
         try:
-            # Получение всех файлов резервных копий
-            backup_files = list(self.backups_dir.glob("temperature_settings_*.json"))
+            # Получение всех файлов резервных копий (учитываем старые и новые имена)
+            backup_files = (
+                list(self.backups_dir.glob("gui_settings_*.json")) +
+                list(self.backups_dir.glob("temperature_settings_*.json"))
+            )
             
             if len(backup_files) > 5:
                 # Сортировка по времени создания (старые первыми)
                 backup_files.sort(key=lambda x: x.stat().st_mtime)
                 
                 # Удаление старых файлов
-                for old_backup in backup_files[:-5]:  # Оставляем последние 5
+                for old_backup in backup_files[:-5]:  # Оставляем последние 5 суммарно
                     old_backup.unlink()
                     self._log_message(f"Удалена старая резервная копия: {old_backup}")
                     
@@ -352,7 +355,7 @@ class SettingsManager:
     
     def copy_defaults_to_settings(self) -> bool:
         """
-        Копирование defaults.json в temperature_settings.json
+        Копирование defaults.json в gui_settings.json
         
         Returns:
             bool: True если копирование успешно
@@ -374,7 +377,7 @@ class SettingsManager:
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(defaults_data, f, indent=2, ensure_ascii=False)
             
-            self._log_message("Defaults скопированы в temperature_settings.json")
+            self._log_message("Defaults скопированы в gui_settings.json")
             return True
             
         except Exception as e:
