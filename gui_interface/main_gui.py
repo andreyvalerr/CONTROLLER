@@ -870,8 +870,26 @@ class TemperatureControllerGUI(App):
                 last_update=datetime.now() if current_temp is not None else None
             )
         
-        # Обновление карточки температуры
-        self.temp_card.update_data(system_data.temperature)
+        # Обновление карточки температуры (скрываем при ошибке/устаревших данных)
+        display_temp = system_data.temperature
+        try:
+            hide_temp = False
+            # Скрываем при статусе ошибки
+            if system_data.temperature_status == "error":
+                hide_temp = True
+            # Скрываем при устаревших данных (>10 сек)
+            elif system_data.last_update is None:
+                hide_temp = True
+            else:
+                age_sec = (datetime.now() - system_data.last_update).total_seconds()
+                if age_sec > 10:
+                    hide_temp = True
+            if hide_temp:
+                display_temp = None
+        except Exception:
+            display_temp = None
+
+        self.temp_card.update_data(display_temp)
         
         # Запуск таймера обновления
         Clock.schedule_interval(self.update_interface, 1.0)
@@ -899,8 +917,24 @@ class TemperatureControllerGUI(App):
                     last_update=datetime.now() if current_temp is not None else None
                 )
             
-            # Обновление карточки температуры
-            self.temp_card.update_data(system_data.temperature)
+            # Обновление карточки температуры (скрываем при ошибке/устаревших данных)
+            display_temp = system_data.temperature
+            try:
+                hide_temp = False
+                if system_data.temperature_status == "error":
+                    hide_temp = True
+                elif system_data.last_update is None:
+                    hide_temp = True
+                else:
+                    age_sec = (datetime.now() - system_data.last_update).total_seconds()
+                    if age_sec > 10:
+                        hide_temp = True
+                if hide_temp:
+                    display_temp = None
+            except Exception:
+                display_temp = None
+
+            self.temp_card.update_data(display_temp)
             
         except Exception as e:
             print(f"Ошибка обновления интерфейса: {e}")
