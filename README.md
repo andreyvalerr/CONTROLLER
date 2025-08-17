@@ -137,65 +137,90 @@
 # Обновление системы
 sudo apt update && sudo apt upgrade -y
 
-# Установка Python и зависимостей
-sudo apt install python3-pip python3-kivy python3-pycryptodome -y
+# Графическая среда, дисплей-менеджер и X-утилиты
+sudo apt install -y raspberrypi-ui-mods lightdm x11-xserver-utils
 
-# Для GPIO (если не установлено)
-sudo apt install python3-rpi.gpio -y
+# Python и зависимости
+sudo apt install -y python3-pip python3-kivy python3-pycryptodome python3-rpi.gpio
 ```
 
-### 2. Клонирование проекта
 
-```bash
-# Переход в домашнюю директорию
-cd /home/user
-
-# Клонирование репозитория (или копирование файлов)
-# git clone https://github.com/your-repo/crypto-boiler-controller.git CONTROLLER
-```
-
-### 3. Установка зависимостей
+### 2. Установка зависимостей
 
 ```bash
 cd CONTROLLER
 
-# Установка Python зависимостей
-pip3 install pycryptodome==3.19.0 --break-system-packages
+# Установка Python-зависимостей проекта
+pip3 install -r requirements.txt --break-system-packages
 
 # Проверка установки
 python3 -c "import kivy; print('Kivy OK')"
 python3 -c "import Crypto; print('Crypto OK')"
 ```
 
-### 4. Настройка автозапуска (опционально)
+Альтернатива: установка и настройка одной командой (скрипт)
 
 ```bash
-# Создание systemd сервиса
-sudo nano /etc/systemd/system/crypto-controller.service
+bash /home/user/CONTROLLER/install_libs/install_libs.sh --check
+# опционально: в виртуальное окружение
+# bash /home/user/CONTROLLER/install_libs/install_libs.sh --venv /home/user/CONTROLLER/.venv --check
 ```
 
-Содержимое файла:
-```ini
-[Unit]
-Description=Crypto Boiler Controller
-After=network.target
+### 3. Настройка автозапуска (рекомендуется)
 
-[Service]
-Type=simple
-User=user
-WorkingDirectory=/home/user/CONTROLLER
-ExecStart=/usr/bin/python3 /home/user/CONTROLLER/start_all_modules.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Активация:
 ```bash
-sudo systemctl enable crypto-controller.service
-sudo systemctl start crypto-controller.service
+# Используем готовый сервис из репозитория
+sudo cp /home/user/CONTROLLER/start/cryptoboiler.service /etc/systemd/system/cryptoboiler.service
+
+# (при необходимости) добавьте окружение для X-сессии
+# sudo sed -i 's|^\(Environment="DISPLAY=.*\)\?$|Environment="DISPLAY=:0"|' /etc/systemd/system/cryptoboiler.service
+# и при проблемах с правами X:
+# sudo sed -i '1,/\[Service\]/!b;//a Environment="XAUTHORITY=/home/user/.Xauthority"' /etc/systemd/system/cryptoboiler.service
+
+sudo systemctl daemon-reload
+sudo systemctl enable cryptoboiler.service
+```
+
+Активация графического таргета по умолчанию:
+```bash
+sudo systemctl set-default graphical.target
+```
+
+Автологин в графическую сессию LightDM:
+```bash
+sudo mkdir -p /etc/lightdm/lightdm.conf.d
+printf "[Seat:*]\nautologin-user=user\nautologin-user-timeout=0\n" | sudo tee /etc/lightdm/lightdm.conf.d/11-autologin.conf
+```
+
+### 4. Киоск-режим (оконный, с курсором и кнопкой закрытия)
+
+Чтобы приложение запускалось автоматически после входа в графическую сессию, не гасило экран, но при этом оставались видимыми курсор и системные кнопки окна:
+
+```bash
+# Конфигурация Kivy (оконный режим)
+mkdir -p ~/.kivy
+cat > ~/.kivy/config.ini << 'EOF'
+[graphics]
+fullscreen = 0
+borderless = 0
+show_cursor = 1
+width = 800
+height = 480
+EOF
+
+# Отключение гашения/DPMS в автозапуске LXDE
+mkdir -p ~/.config/lxsession/LXDE-pi
+cat > ~/.config/lxsession/LXDE-pi/autostart << 'EOF'
+@xset s off
+@xset -dpms
+@xset s noblank
+EOF
+
+# Убедитесь, что скрипт запуска не форсирует авто-фуллскрин
+sudo sed -i 's/ start_all_modules.py --auto-fullscreen/ start_all_modules.py/' /home/user/CONTROLLER/start/start_controller.sh
+
+# Перезагрузка для применения
+sudo reboot
 ```
 
 ## ⚡ Быстрый запуск
@@ -474,7 +499,7 @@ status = controller.get_status()
 /home/user/CONTROLLER/valve_control/logs/
 
 # Системные логи (если настроен systemd)
-journalctl -u crypto-controller.service -f
+journalctl -u cryptoboiler.service -f
 ```
 
 ### Мониторинг в реальном времени
