@@ -6,7 +6,12 @@
 
 import os
 import sys
+import time
 from datetime import datetime
+from kivy.config import Config
+# Отключаем мульти-тач у провайдера мыши и уменьшаем окно двойного тапа
+Config.set('input', 'mouse', 'mouse,disable_multitouch')
+Config.set('postproc', 'double_tap_time', '180')
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
@@ -213,6 +218,7 @@ class NumericKeyboard(Popup):
     
     def __init__(self, target_input, **kwargs):
         super().__init__(**kwargs)
+        self._last_key_ts = 0.0
         self.target_input = target_input
         self.title = 'Ввод IP адреса'
         self.size_hint = (0.85, 0.75)  # Уменьшаем размер для размещения на экране
@@ -314,9 +320,18 @@ class NumericKeyboard(Popup):
         main_layout.add_widget(button_layout)
         
         self.content = main_layout
+
+    def _key_debounce(self, interval: float = 0.12) -> bool:
+        now = time.monotonic()
+        if now - getattr(self, '_last_key_ts', 0.0) < interval:
+            return False
+        self._last_key_ts = now
+        return True
     
     def add_character(self, char):
         """Добавление символа к вводу"""
+        if not self._key_debounce():
+            return
         current_text = self.display_input.text
         # Проверяем валидность для IP адреса
         new_text = current_text + char
@@ -325,16 +340,22 @@ class NumericKeyboard(Popup):
     
     def backspace(self):
         """Удаление последнего символа"""
+        if not self._key_debounce():
+            return
         current_text = self.display_input.text
         if len(current_text) > 0:
             self.display_input.text = current_text[:-1]
     
     def clear_input(self):
         """Очистка поля ввода"""
+        if not self._key_debounce():
+            return
         self.display_input.text = ''
     
     def confirm_input(self):
         """Подтверждение ввода"""
+        if not self._key_debounce():
+            return
         ip_text = self.display_input.text
         if self.is_valid_ip(ip_text):
             self.target_input.text = ip_text
@@ -769,6 +790,9 @@ class SettingsPage(Popup):
     
     def start_repeat_change(self, temp_type, change):
         """Начало повторяющегося изменения температуры при зажатии кнопки"""
+        # Если таймер уже идёт, игнорируем повторный запуск (возможный дубль тапа)
+        if self.repeat_event:
+            return
         # Сразу делаем первое изменение
         if temp_type == 'min':
             self.on_min_button_change(change)
@@ -912,6 +936,12 @@ class SettingsPage(Popup):
     def on_ip_input_touch(self, instance, touch):
         """Обработка нажатия на поле ввода IP"""
         if instance.collide_point(touch.x, touch.y):
+            # Дебаунс открытия попапа (защита от дубля тапа)
+            now = time.monotonic()
+            last = getattr(self, '_last_ip_popup_ts', 0.0)
+            if now - last < 0.35:
+                return True
+            self._last_ip_popup_ts = now
             keyboard = NumericKeyboard(instance)
             keyboard.open()
             return True
@@ -1105,6 +1135,9 @@ class TemperatureControllerGUI(App):
     
     def open_settings_page(self, instance=None):
         """Открытие страницы настроек"""
+        # Дебаунс на случай дублирующего тапа
+        if not self._debounce('open_settings', 0.35):
+            return
         popup = SettingsPage()
         popup.open()
 
@@ -1175,8 +1208,22 @@ class TemperatureControllerGUI(App):
         except Exception as e:
             print(f"Ошибка применения режима отображения кнопки: {e}")
 
+    def _debounce(self, key: str, min_interval: float = 0.3) -> bool:
+        """True, если действие следует выполнить (не чаще min_interval секунд)."""
+        now = time.monotonic()
+        if not hasattr(self, '_debounce_ts'):
+            self._debounce_ts = {}
+        last = self._debounce_ts.get(key, 0.0)
+        if now - last < min_interval:
+            return False
+        self._debounce_ts[key] = now
+        return True
+
     def on_cooling_button_press(self, instance):
         """Обработка нажатия на кнопку 'ОХЛАЖДЕНИЕ' — переключение охлаждения в valve_control."""
+        # Дебаунс, чтобы команда не улетала дважды
+        if not self._debounce('cooling_toggle', 0.25):
+            return
         try:
             if self.current_mode != 'manual':
                 return
