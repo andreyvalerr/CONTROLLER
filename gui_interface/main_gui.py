@@ -184,7 +184,7 @@ class CoolingButton(Button):
         super().__init__(**kwargs)
         self.text = 'ОХЛАЖДЕНИЕ'
         self.bold = True
-        self.font_size = dp(28)
+        self.font_size = dp(18)
         self.background_normal = ''
         self.background_down = ''
         self.background_color = (0, 0, 0, 0)
@@ -992,8 +992,8 @@ class TemperatureControllerGUI(App):
         # Кнопка 'ОХЛАЖДЕНИЕ' (по умолчанию скрыта, показывается в ручном режиме)
         self.cooling_button = CoolingButton(
             size_hint=(None, None),
-            size=(dp(240), dp(130)),
-            pos_hint={'right': 0.88, 'center_y': 0.56}
+            size=(dp(150), dp(130)),
+            pos_hint={'right': 0.98, 'center_y': 0.50}
         )
         self.cooling_button.bind(on_press=self.on_cooling_button_press)
         root_layout.add_widget(self.cooling_button)
