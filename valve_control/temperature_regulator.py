@@ -44,7 +44,8 @@ class TemperatureRegulator:
                  relay_controller: RelayController,
                  temperature_callback: Callable[[], Optional[float]],
                  config: Optional[RegulatorConfig] = None,
-                 temperature_settings_callback: Optional[Callable[[], Optional[dict]]] = None):
+                 temperature_settings_callback: Optional[Callable[[], Optional[dict]]] = None,
+                 relay_controller_low: Optional[RelayController] = None):
         """
         Инициализация регулятора температуры
         
@@ -57,6 +58,8 @@ class TemperatureRegulator:
         self.relay_controller = relay_controller
         self.temperature_callback = temperature_callback
         self.temperature_settings_callback = temperature_settings_callback
+        # Дополнительный релейный канал для нижнего порога (GPIO22)
+        self.relay_controller_low = relay_controller_low
         
         # Конфигурация
         if config is None:
@@ -100,7 +103,10 @@ class TemperatureRegulator:
             return True
         
         if not self.relay_controller.is_initialized():
-            self.logger.error("Релейный контроллер не инициализирован")
+            self.logger.error("Релейный контроллер (верхний порог) не инициализирован")
+            return False
+        if self.relay_controller_low is not None and not self.relay_controller_low.is_initialized():
+            self.logger.error("Релейный контроллер (нижний порог) не инициализирован")
             return False
         
         try:
@@ -136,8 +142,10 @@ class TemperatureRegulator:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5.0)
         
-        # Выключение охлаждения при остановке
+        # Выключение реле при остановке
         self.relay_controller.turn_off()
+        if self.relay_controller_low is not None:
+            self.relay_controller_low.turn_off()
         
         self.state = RegulatorState.STOPPED
         self.logger.info("Регулятор температуры остановлен")
@@ -196,37 +204,53 @@ class TemperatureRegulator:
         Args:
             temperature: Текущая температура
         """
-        cooling_active = self.relay_controller.get_relay_state()
+        # Состояния и пороги
+        high_active = self.relay_controller.get_relay_state()
+        low_active = self.relay_controller_low.get_relay_state() if self.relay_controller_low is not None else False
         max_temp = self.config.max_temperature
         min_temp = self.config.min_temperature
+        hysteresis = self.config.temperature_config.hysteresis if self.config and self.config.temperature_config else 0.1
         
         # Подробное логирование для диагностики
-        self.logger.debug(f"Регулирование: T={temperature:.1f}°C, охлаждение={'ВКЛ' if cooling_active else 'ВЫКЛ'}, "
-                         f"пороги=[{min_temp:.1f}°C - {max_temp:.1f}°C]")
+        self.logger.debug(
+            f"Регулирование: T={temperature:.2f}°C, "
+            f"HIGH={'ON' if high_active else 'OFF'}, LOW={'ON' if low_active else 'OFF'}, "
+            f"пороги=[{min_temp:.2f}°C - {max_temp:.2f}°C], hyst={hysteresis:.2f}°C"
+        )
         
-        if not cooling_active and temperature >= max_temp:
-            # Включить охлаждение при достижении максимальной температуры
-            self.logger.info(f"🔥 ПОПЫТКА ВКЛЮЧЕНИЯ: T={temperature:.1f}°C >= {max_temp:.1f}°C")
+        # ЛОГИКА ДЛЯ ВЕРХНЕГО ПОРОГА (GPIO17):
+        # Включить при достижении max_temp, выключить когда температура станет МЕНЬШЕ (max_temp - 0.1)
+        if not high_active and temperature >= max_temp:
+            self.logger.info(f"🔥 HIGH ON: T={temperature:.2f}°C >= {max_temp:.2f}°C")
             if self.relay_controller.turn_on():
                 self._cooling_cycles += 1
-                self.logger.info(f"✅ Охлаждение включено: {temperature}°C >= {max_temp}°C")
+                self.logger.info(f"✅ HIGH включено (GPIO17)")
             else:
-                self.logger.error(f"❌ НЕ УДАЛОСЬ ВКЛЮЧИТЬ охлаждение при T={temperature:.1f}°C")
-        
-        elif cooling_active and temperature <= min_temp:
-            # Выключить охлаждение при достижении минимальной температуры
-            self.logger.info(f"❄️ ПОПЫТКА ВЫКЛЮЧЕНИЯ: T={temperature:.1f}°C <= {min_temp:.1f}°C")
+                self.logger.error(f"❌ Не удалось включить HIGH при T={temperature:.2f}°C")
+        elif high_active and temperature < (max_temp - hysteresis):
+            self.logger.info(f"❄️ HIGH OFF: T={temperature:.2f}°C < {max_temp - hysteresis:.2f}°C")
             if self.relay_controller.turn_off():
-                self.logger.info(f"✅ Охлаждение выключено: {temperature}°C <= {min_temp}°C")
+                self.logger.info(f"✅ HIGH выключено (GPIO17)")
             else:
-                self.logger.error(f"❌ НЕ УДАЛОСЬ ВЫКЛЮЧИТЬ охлаждение при T={temperature:.1f}°C")
+                self.logger.error(f"❌ Не удалось выключить HIGH при T={temperature:.2f}°C")
+
+        # ЛОГИКА ДЛЯ НИЖНЕГО ПОРОГА (GPIO22):
+        if self.relay_controller_low is not None:
+            if not low_active and temperature < min_temp:
+                self.logger.info(f"🧊 LOW ON: T={temperature:.2f}°C < {min_temp:.2f}°C")
+                if self.relay_controller_low.turn_on():
+                    self._cooling_cycles += 1
+                    self.logger.info(f"✅ LOW включено (GPIO22)")
+                else:
+                    self.logger.error(f"❌ Не удалось включить LOW при T={temperature:.2f}°C")
+            elif low_active and temperature > (min_temp + hysteresis):
+                self.logger.info(f"🌡️ LOW OFF: T={temperature:.2f}°C > {min_temp + hysteresis:.2f}°C")
+                if self.relay_controller_low.turn_off():
+                    self.logger.info(f"✅ LOW выключено (GPIO22)")
+                else:
+                    self.logger.error(f"❌ Не удалось выключить LOW при T={temperature:.2f}°C")
         
-        else:
-            # Логирование состояния когда нет действий
-            if cooling_active:
-                self.logger.debug(f"⏳ Охлаждение активно, ожидание снижения до {min_temp:.1f}°C (текущая: {temperature:.1f}°C)")
-            else:
-                self.logger.debug(f"⏳ Охлаждение неактивно, ожидание повышения до {max_temp:.1f}°C (текущая: {temperature:.1f}°C)")
+        # Иначе — без действий
     
     def _check_and_update_temperature_settings(self):
         """

@@ -5,6 +5,7 @@
 """
 
 import logging
+import os
 import signal
 from typing import Optional, Callable
 from dataclasses import dataclass
@@ -81,6 +82,18 @@ class ValveController:
         # Компоненты системы
         self.relay_controller = RelayController(self.config.relay_config)
         
+        # Второй контроллер реле для нижнего порога (GPIO22 по умолчанию)
+        low_pin = int(os.getenv("RELAY_PIN_LOW", 22))
+        relay_config_low = RelayConfig(
+            relay_pin=low_pin,
+            gpio_mode=self.config.relay_config.gpio_mode,
+            relay_on_state=self.config.relay_config.relay_on_state,
+            relay_off_state=self.config.relay_config.relay_off_state,
+            enable_warnings=self.config.relay_config.enable_warnings,
+            cleanup_on_exit=self.config.relay_config.cleanup_on_exit,
+        )
+        self.relay_controller_low = RelayController(relay_config_low)
+        
         # Создание регулятора температуры с функцией получения настроек
         regulator_config = RegulatorConfig(
             temperature_config=self.config.temperature_config,
@@ -91,7 +104,8 @@ class ValveController:
             relay_controller=self.relay_controller,
             temperature_callback=self.temperature_callback,
             config=regulator_config,
-            temperature_settings_callback=self.get_temperature_settings_from_data_manager
+            temperature_settings_callback=self.get_temperature_settings_from_data_manager,
+            relay_controller_low=self.relay_controller_low
         )
         
         # Состояние контроллера
@@ -181,6 +195,11 @@ class ValveController:
         
         # Очистка ресурсов реле
         self.relay_controller.cleanup()
+        # Очистка второго реле
+        try:
+            self.relay_controller_low.cleanup()
+        except Exception:
+            pass
         
         self._is_running = False
         self.logger.info("Контроллер клапанов остановлен")
@@ -459,7 +478,8 @@ class ValveController:
     def _log_configuration(self):
         """Вывод текущей конфигурации"""
         self.logger.info("=== КОНФИГУРАЦИЯ КОНТРОЛЛЕРА ===")
-        self.logger.info(f"GPIO пин: {self.config.relay_config.relay_pin}")
+        self.logger.info(f"GPIO пин HIGH: {self.config.relay_config.relay_pin}")
+        self.logger.info(f"GPIO пин LOW: {self.relay_controller_low.config.relay_pin}")
         self.logger.info(f"Пороги температуры: {self.config.temperature_config.min_temperature}°C - {self.config.temperature_config.max_temperature}°C")
         self.logger.info(f"Интервал контроля: {self.config.temperature_config.control_interval} сек")
         self.logger.info("================================")
