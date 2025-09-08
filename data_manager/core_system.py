@@ -380,6 +380,40 @@ class CoreSystem:
                 )
                 print(f"IP адрес ASIC загружен из настроек: {ip_addr}")
             
+            # Загружаем режим работы (auto/manual) и публикуем
+            try:
+                mode_value = self.settings_manager.load_mode()
+                if isinstance(mode_value, str) and mode_value:
+                    normalized = mode_value.strip().lower()
+                    if normalized in ("авто", "automatic"):
+                        normalized = "auto"
+                    elif normalized in ("ручной", "manual"):
+                        normalized = "manual"
+                    if normalized in ("auto", "manual"):
+                        self.data_manager.set_data(
+                            DataType.MODE,
+                            normalized,
+                            "settings_manager",
+                            {"loaded_from_file": True, "updated_at": datetime.now().isoformat()}
+                        )
+                        print(f"Режим работы загружен из настроек: {normalized}")
+            except Exception:
+                pass
+
+            # Загружаем сохранённое состояние охлаждения и публикуем
+            try:
+                cooling_saved = self.settings_manager.load_cooling_state()
+                if isinstance(cooling_saved, bool):
+                    self.data_manager.set_data(
+                        DataType.COOLING_STATE,
+                        bool(cooling_saved),
+                        "settings_manager",
+                        {"loaded_from_file": True, "updated_at": datetime.now().isoformat()}
+                    )
+                    print(f"Состояние охлаждения загружено из настроек: {'on' if cooling_saved else 'off'}")
+            except Exception:
+                pass
+            
         except Exception as e:
             self._log_error(f"Ошибка при загрузке настроек температуры: {e}")
     
@@ -688,3 +722,86 @@ def get_asic_ip() -> Optional[str]:
     if core:
         return core.data_manager.get_value(DataType.IP_ADDRESS_ASIC)
     return None
+
+
+# Работа с режимом (mode) и охлаждением (cooling_state)
+def set_mode(mode_value: str, source_module: str = "external") -> bool:
+    """
+    Установка режима работы системы (auto/manual) в data_manager и сохранение в файл настроек
+    """
+    global _global_core_system
+    if not _global_core_system:
+        return False
+    try:
+        normalized = str(mode_value).strip().lower()
+        if normalized in ("авто", "automatic"):
+            normalized = "auto"
+        elif normalized in ("ручной", "manual"):
+            normalized = "manual"
+        if normalized not in ("auto", "manual"):
+            return False
+        saved = _global_core_system.data_manager.set_data(
+            DataType.MODE,
+            normalized,
+            source_module,
+            {"updated_at": datetime.now().isoformat()}
+        )
+        # Сохраняем в файл
+        try:
+            _global_core_system.settings_manager.save_mode(normalized)
+        except Exception:
+            pass
+        return saved
+    except Exception:
+        return False
+
+
+def get_mode() -> Optional[str]:
+    """Получение текущего режима работы (auto/manual) из data_manager"""
+    core = get_core_instance()
+    if core:
+        return core.data_manager.get_value(DataType.MODE)
+    return None
+
+
+def set_cooling_state(is_on: bool, source_module: str = "external") -> bool:
+    """
+    Установка желаемого состояния охлаждения в data_manager и сохранение в файл настроек.
+    Применение к реле выполняет valve_control через listener.
+    """
+    global _global_core_system
+    if not _global_core_system:
+        return False
+    try:
+        state_bool = bool(is_on)
+        saved = _global_core_system.data_manager.set_data(
+            DataType.COOLING_STATE,
+            state_bool,
+            source_module,
+            {"updated_at": datetime.now().isoformat()}
+        )
+        # Сохраняем в файл (как последнее желаемое состояние)
+        try:
+            _global_core_system.settings_manager.save_cooling_state(state_bool)
+        except Exception:
+            pass
+        return saved
+    except Exception:
+        return False
+
+
+def get_cooling_state() -> Optional[bool]:
+    """Получение желаемого состояния охлаждения из data_manager"""
+    core = get_core_instance()
+    if core:
+        return core.data_manager.get_value(DataType.COOLING_STATE)
+    return None
+
+
+def toggle_cooling(source_module: str = "external") -> Optional[bool]:
+    """Переключение состояния охлаждения через data_manager"""
+    current = get_cooling_state()
+    if current is None:
+        # если не задано, считаем выключенным
+        return set_cooling_state(True, source_module)
+    return set_cooling_state(not bool(current), source_module)

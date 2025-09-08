@@ -45,7 +45,12 @@ from data_manager.core_system import (
     start_core_system,
     is_core_system_running,
     set_asic_ip,
-    get_asic_ip
+    get_asic_ip,
+    set_mode,
+    get_mode,
+    set_cooling_state,
+    toggle_cooling,
+    get_cooling_state
 )
 
 class TemperatureCard(BoxLayout):
@@ -867,30 +872,12 @@ class SettingsPage(Popup):
         SettingsPage.saved_asic_ip = self.asic_ip
         print(f"IP адрес ASIC устройства сохранен: {self.asic_ip}")
 
-        # Сохраняем режим работы в gui_settings.json
+        # Сохраняем режим работы через Data Manager (единый источник истины)
         try:
-            from data_manager.settings_manager import get_settings_manager
-            sm = get_settings_manager()
             selected_text = getattr(self, 'mode_spinner', None).text if hasattr(self, 'mode_spinner') else 'Авто'
             normalized = 'auto' if selected_text.strip().lower().startswith('авто') else 'manual'
-            if sm.save_mode(normalized):
-                print(f"Режим работы сохранен: {selected_text} ({normalized})")
-                # Применяем режим к модулю valve_control немедленно
-                try:
-                    if normalized == 'manual':
-                        from valve_control.data_manager_integration import set_manual_mode
-                        if set_manual_mode():
-                            print("valve_control переведён в ручной режим (охлаждение выключено)")
-                        else:
-                            print("Не удалось перевести valve_control в ручной режим")
-                    else:
-                        from valve_control.data_manager_integration import set_auto_mode
-                        if set_auto_mode():
-                            print("valve_control переведён в автоматический режим")
-                        else:
-                            print("Не удалось перевести valve_control в авто режим")
-                except Exception as e:
-                    print(f"Ошибка применения режима в valve_control: {e}")
+            if set_mode(normalized, source_module="gui_interface"):
+                print(f"Режим работы сохранен через Data Manager: {selected_text} ({normalized})")
                 # Обновляем локально состояние режима в главном приложении и применяем видимость кнопки
                 try:
                     app = App.get_running_app()
@@ -901,9 +888,9 @@ class SettingsPage(Popup):
                 except Exception:
                     pass
             else:
-                print("Не удалось сохранить режим работы")
+                print("Не удалось сохранить режим работы через Data Manager")
         except Exception as e:
-            print(f"Ошибка сохранения режима работы: {e}")
+            print(f"Ошибка установки режима через Data Manager: {e}")
 
         # Немедленно передаем IP адрес ASIC в data_manager
         try:
@@ -1000,7 +987,6 @@ class TemperatureControllerGUI(App):
         self.current_mode = self._get_current_mode()
         # Устанавливаем начальный цвет кнопки по фактическому состоянию охлаждения
         try:
-            from valve_control.data_manager_integration import get_cooling_state
             current = get_cooling_state()
             if current is None:
                 # Фолбэк к сохраненному состоянию в settings
@@ -1113,7 +1099,6 @@ class TemperatureControllerGUI(App):
             # В ручном режиме периодически подтягиваем состояние охлаждения
             if self.current_mode == 'manual':
                 try:
-                    from valve_control.data_manager_integration import get_cooling_state
                     current = get_cooling_state()
                     if current is not None:
                         self.cooling_button.set_cooling_state(bool(current))
@@ -1189,7 +1174,6 @@ class TemperatureControllerGUI(App):
                 # При появлении кнопки обновляем цвет по фактическому состоянию
                 if is_manual:
                     try:
-                        from valve_control.data_manager_integration import get_cooling_state
                         current = get_cooling_state()
                         if current is not None:
                             self.cooling_button.set_cooling_state(bool(current))
@@ -1220,35 +1204,22 @@ class TemperatureControllerGUI(App):
         return True
 
     def on_cooling_button_press(self, instance):
-        """Обработка нажатия на кнопку 'ОХЛАЖДЕНИЕ' — переключение охлаждения в valve_control."""
+        """Переключение охлаждения через Data Manager (применит valve_control listener)."""
         # Дебаунс, чтобы команда не улетала дважды
         if not self._debounce('cooling_toggle', 0.25):
             return
         try:
             if self.current_mode != 'manual':
                 return
-            from valve_control.data_manager_integration import toggle_manual_cooling
-            if toggle_manual_cooling():
-                # После удачного переключения узнаём актуальное состояние и меняем цвет
-                try:
-                    from valve_control.data_manager_integration import get_cooling_state
-                    current = get_cooling_state()
-                    if current is not None:
-                        self.cooling_button.set_cooling_state(bool(current))
-                        # Сохраняем состояние в gui_settings.json
-                        try:
-                            from data_manager.settings_manager import get_settings_manager
-                            sm = get_settings_manager()
-                            sm.save_cooling_state(bool(current))
-                        except Exception as e:
-                            print(f"Ошибка сохранения состояния охлаждения: {e}")
-                except Exception:
-                    pass
-                print("Переключение охлаждения отправлено в valve_control")
+            result = toggle_cooling(source_module="gui_interface")
+            if result is not None:
+                current = get_cooling_state()
+                if current is not None:
+                    self.cooling_button.set_cooling_state(bool(current))
             else:
-                print("Не удалось переключить охлаждение (valve_control)")
+                print("Не удалось переключить охлаждение через Data Manager")
         except Exception as e:
-            print(f"Ошибка при переключении охлаждения: {e}")
+            print(f"Ошибка при переключении охлаждения через Data Manager: {e}")
 
 def main():
     """Запуск GUI приложения"""

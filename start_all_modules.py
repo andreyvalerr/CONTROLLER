@@ -53,7 +53,9 @@ def start_valve_control():
             get_temperature_for_valve_controller,
             is_temperature_settings_available,
             register_valve_controller_instance,
-            initialize_mode_from_settings
+            initialize_mode_from_settings,
+            start_mode_cooling_listener,
+            stop_mode_cooling_listener
         )
         from valve_control.valve_controller import ValveController, ValveControllerConfig
         from valve_control.config import load_config_from_env
@@ -106,13 +108,18 @@ def start_valve_control():
         valve_thread = threading.Thread(target=run_valve_controller, daemon=True)
         valve_thread.start()
 
-        # Фоновая инициализация режима после старта контроллера
+        # Фоновая инициализация режима после старта контроллера и запуск listener
         def apply_mode_when_ready():
             try:
                 for _ in range(50):  # до ~10 секунд ожидания
                     try:
                         if valve_controller_instance and valve_controller_instance.is_running():
                             initialize_mode_from_settings()
+                            # Запускаем listener режима/охлаждения
+                            try:
+                                start_mode_cooling_listener()
+                            except Exception:
+                                pass
                             return
                     except Exception:
                         pass
@@ -258,6 +265,13 @@ def main():
         from valve_control.data_manager_integration import stop_temperature_data_provider
         stop_temperature_data_provider()
         print("✅ Valve Control интеграция остановлена")
+    except:
+        pass
+
+    try:
+        from valve_control.data_manager_integration import stop_mode_cooling_listener
+        stop_mode_cooling_listener()
+        print("✅ Valve Control listener режима/охлаждения остановлен")
     except:
         pass
     

@@ -20,6 +20,8 @@ class DataType(Enum):
     SYSTEM_STATUS = "system_status"
     ERROR = "error"
     IP_ADDRESS_ASIC = "ip_address_asic"
+    MODE = "mode"  # Режим работы системы: auto/manual
+    COOLING_STATE = "cooling_state"  # Состояние охлаждения: True/False
 
 
 @dataclass

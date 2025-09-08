@@ -185,6 +185,12 @@ _controller_instance = None
 _controller_lock = threading.Lock()
 _is_manual_mode = False
 
+# Слушатель режима/охлаждения
+_listener_running = False
+_listener_lock = threading.Lock()
+_mode_callback_ref = None
+_cooling_callback_ref = None
+
 
 def start_temperature_data_provider(update_interval: float = 1.0) -> bool:
     """
@@ -258,6 +264,95 @@ def set_auto_mode() -> bool:
 def is_manual_mode() -> bool:
     """Возвращает текущий локальный флаг ручного режима."""
     return _is_manual_mode
+
+
+def start_mode_cooling_listener() -> bool:
+    """
+    Подписывается на изменения MODE и COOLING_STATE в DataManager,
+    применяя их к зарегистрированному контроллеру.
+    """
+    global _listener_running, _mode_callback_ref, _cooling_callback_ref
+    if not DATA_MANAGER_AVAILABLE:
+        print("[valve_control] Нельзя запустить listener: data_manager недоступен")
+        return False
+    with _listener_lock:
+        if _listener_running:
+            return True
+        core = get_core_instance()
+        if core is None or not core.is_running:
+            print("[valve_control] Нельзя запустить listener: core_system не запущен")
+            return False
+        dm = core.data_manager
+
+        def on_mode_change(entry):
+            try:
+                mode_val = str(entry.value).strip().lower() if entry and entry.value is not None else None
+                if mode_val in ("авто", "automatic"):
+                    mode_val = "auto"
+                if mode_val in ("ручной", "manual"):
+                    mode_val = "manual"
+                if mode_val == "manual":
+                    set_manual_mode()
+                elif mode_val == "auto":
+                    set_auto_mode()
+            except Exception as e:
+                print(f"[valve_control] Ошибка обработчика MODE: {e}")
+
+        def on_cooling_change(entry):
+            try:
+                if not is_manual_mode():
+                    return
+                desired = bool(entry.value) if entry and entry.value is not None else False
+                set_manual_cooling(desired)
+            except Exception as e:
+                print(f"[valve_control] Ошибка обработчика COOLING_STATE: {e}")
+
+        # Сохраняем ссылки для отписки
+        _mode_callback_ref = on_mode_change
+        _cooling_callback_ref = on_cooling_change
+
+        # Подписка
+        dm.subscribe(DataType.MODE, _mode_callback_ref)
+        dm.subscribe(DataType.COOLING_STATE, _cooling_callback_ref)
+
+        # Немедленно применяем текущие значения, если есть
+        try:
+            current_mode = core.data_manager.get_value(DataType.MODE)
+            if isinstance(current_mode, str):
+                on_mode_change(type('E', (), {'value': current_mode}))
+            current_cooling = core.data_manager.get_value(DataType.COOLING_STATE)
+            if current_cooling is not None:
+                on_cooling_change(type('E', (), {'value': current_cooling}))
+        except Exception:
+            pass
+
+        _listener_running = True
+        print("[valve_control] Listener режима/охлаждения запущен")
+        return True
+
+
+def stop_mode_cooling_listener() -> None:
+    """Отписка от изменений MODE/COOLING_STATE в DataManager."""
+    global _listener_running, _mode_callback_ref, _cooling_callback_ref
+    if not DATA_MANAGER_AVAILABLE:
+        return
+    with _listener_lock:
+        if not _listener_running:
+            return
+        core = get_core_instance()
+        if core is not None and core.is_running:
+            dm = core.data_manager
+            try:
+                if _mode_callback_ref is not None:
+                    dm.unsubscribe(DataType.MODE, _mode_callback_ref)
+                if _cooling_callback_ref is not None:
+                    dm.unsubscribe(DataType.COOLING_STATE, _cooling_callback_ref)
+            except Exception:
+                pass
+        _mode_callback_ref = None
+        _cooling_callback_ref = None
+        _listener_running = False
+        print("[valve_control] Listener режима/охлаждения остановлен")
 
 
 def set_manual_cooling(state: bool) -> bool:
