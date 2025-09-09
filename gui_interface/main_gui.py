@@ -30,6 +30,12 @@ from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.graphics import Color, Rectangle, RoundedRectangle, Ellipse, Line
 from kivy.metrics import dp
+import json
+import tarfile
+import tempfile
+import shutil
+import subprocess
+from urllib.request import Request, urlopen
 
 # Добавляем путь к модулю data_manager
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -504,6 +510,10 @@ class SettingsPage(Popup):
         ip_section = self._create_ip_section()
         main_layout.add_widget(ip_section)
         
+        # Секция обновления (между IP и полноэкранным режимом)
+        update_section = self._create_update_section()
+        main_layout.add_widget(update_section)
+
         # Секция полноэкранного режима
         fullscreen_section = self._create_fullscreen_section()
         main_layout.add_widget(fullscreen_section)
@@ -724,6 +734,190 @@ class SettingsPage(Popup):
         section.add_widget(self.ip_input)
         
         return section
+
+    def _create_update_section(self):
+        """Создание секции обновления из GitHub Releases"""
+        section = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(100))
+        
+        # Заголовок
+        section.add_widget(self._create_section_header('Обновление'))
+        
+        # Горизонтальная панель: метка релиза + кнопка
+        row = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(40))
+        self.release_label = Label(
+            text='Релиз: —',
+            font_size=dp(16),
+            color=(0.8, 0.8, 0.8, 1),
+            size_hint_x=0.6
+        )
+        update_btn = Button(
+            text='Обновить',
+            size_hint_x=0.4,
+            background_color=(0.2, 0.7, 0.4, 1)
+        )
+        update_btn.bind(on_press=self.on_update_press)
+        row.add_widget(self.release_label)
+        row.add_widget(update_btn)
+        section.add_widget(row)
+        
+        # Асинхронно загрузим название последнего релиза
+        try:
+            import threading
+            threading.Thread(target=self._load_release_info_async, daemon=True).start()
+        except Exception:
+            pass
+        
+        return section
+
+    # ===== Обновление через GitHub Releases =====
+    def _fetch_latest_release_info(self, timeout: float = 10.0):
+        url = 'https://api.github.com/repos/andreyvalerr/CONTROLLER/releases/latest'
+        req = Request(url, headers={
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': 'CONTROLLER-Updater'
+        })
+        try:
+            with urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                tag = data.get('tag_name') or data.get('name') or 'unknown'
+                tarball_url = data.get('tarball_url')
+                name = data.get('name') or tag
+                return {
+                    'display': name if name else tag,
+                    'tag': tag,
+                    'tarball_url': tarball_url
+                }
+        except Exception:
+            return None
+
+    def _load_release_info_async(self):
+        info = self._fetch_latest_release_info()
+        if info:
+            from kivy.clock import Clock
+            def _apply(dt):
+                try:
+                    self.release_label.text = f"Релиз: {info.get('display', '—')}"
+                except Exception:
+                    pass
+            Clock.schedule_once(_apply, 0)
+
+    def on_update_press(self, instance=None):
+        # Минимальная реализация: попытка системного скрипта, затем Python-фолбэк
+        try:
+            btn = instance if isinstance(instance, Button) else None
+            if btn:
+                btn.disabled = True
+                btn.text = 'Обновление...'
+            import threading
+            threading.Thread(target=self._perform_update_background, args=(btn,), daemon=True).start()
+        except Exception as e:
+            self._show_simple_popup('Ошибка', f'Не удалось запустить обновление: {e}')
+
+    def _perform_update_background(self, btn_ref):
+        success = False
+        message = ''
+        # 1) Пытаемся через системный скрипт, если установлен
+        try:
+            updater_path = '/usr/local/bin/cryptoboiler-update'
+            repo_url = 'https://github.com/andreyvalerr/CONTROLLER'
+            if os.path.exists(updater_path) and os.access(updater_path, os.X_OK):
+                proc = subprocess.run([updater_path, f'--repo-url={repo_url}'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                success = (proc.returncode == 0)
+                message = proc.stdout if success else (proc.stderr or proc.stdout)
+        except Exception as e:
+            message = str(e)
+
+        # 2) Фолбэк на Python: скачиваем tarball и копируем файлы
+        if not success:
+            try:
+                info = self._fetch_latest_release_info(timeout=15.0)
+                if not info or not info.get('tarball_url'):
+                    raise RuntimeError('Не удалось получить tarball_url релиза')
+                self._python_update_from_tarball(info['tarball_url'])
+                success = True
+                message = 'Обновление установлено'
+            except Exception as e:
+                success = False
+                message = f'{message}\n{e}' if message else str(e)
+
+        # Обновляем UI
+        from kivy.clock import Clock
+        def _finish(dt):
+            try:
+                if btn_ref:
+                    btn_ref.disabled = False
+                    btn_ref.text = 'Обновить'
+                self._show_simple_popup('Готово' if success else 'Ошибка', message if message else ('Успех' if success else 'Неизвестная ошибка'))
+                # Обновим заголовок релиза после удачного обновления
+                if success:
+                    try:
+                        self._load_release_info_async()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        Clock.schedule_once(_finish, 0)
+
+    def _python_update_from_tarball(self, tarball_url: str):
+        # Вычисляем корень проекта
+        project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Скачиваем архив
+            req = Request(tarball_url, headers={'User-Agent': 'CONTROLLER-Updater'})
+            tar_path = os.path.join(tmpdir, 'release.tar.gz')
+            with urlopen(req, timeout=30) as resp, open(tar_path, 'wb') as out:
+                shutil.copyfileobj(resp, out)
+            # Распаковка
+            with tarfile.open(tar_path, 'r:gz') as tf:
+                tf.extractall(tmpdir)
+            # Находим корневую папку архива
+            top_dirs = [os.path.join(tmpdir, d) for d in os.listdir(tmpdir) if os.path.isdir(os.path.join(tmpdir, d))]
+            if not top_dirs:
+                raise RuntimeError('Неверный формат архива')
+            src_root = top_dirs[0]
+            # Копирование файлов в проект (минимально: перезаписываем; сохраняем gui_settings.json и backups)
+            exclude_relative = {
+                os.path.join('data_manager', 'config', 'gui_settings.json')
+            }
+            exclude_dirs = {
+                os.path.join('data_manager', 'config', 'backups')
+            }
+            for root, dirs, files in os.walk(src_root):
+                rel_root = os.path.relpath(root, src_root)
+                if rel_root == '.':
+                    rel_root = ''
+                # Пропускаем исключённые директории
+                skip = False
+                for ex in exclude_dirs:
+                    if rel_root.startswith(ex):
+                        skip = True
+                        break
+                if skip:
+                    continue
+                # Создаём директорию назначения
+                dest_dir = os.path.join(project_dir, rel_root) if rel_root else project_dir
+                os.makedirs(dest_dir, exist_ok=True)
+                for fname in files:
+                    rel_path = os.path.join(rel_root, fname) if rel_root else fname
+                    if rel_path in exclude_relative:
+                        continue
+                    src_path = os.path.join(root, fname)
+                    dest_path = os.path.join(dest_dir, fname)
+                    # Создаём подкаталог, если нужно
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    shutil.copy2(src_path, dest_path)
+
+    def _show_simple_popup(self, title: str, text: str):
+        try:
+            p = Popup(
+                title=title,
+                content=Label(text=text),
+                size_hint=(0.8, 0.6),
+                auto_dismiss=True
+            )
+            p.open()
+        except Exception:
+            print(f"{title}: {text}")
     
     def _create_fullscreen_section(self):
         """Создание секции полноэкранного режима"""
