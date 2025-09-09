@@ -200,7 +200,7 @@ step_vnc_setup() {
 step_install_updater() {
 	local updater="/usr/local/bin/cryptoboiler-update"
 	log "Устанавливаю скрипт обновления через GitHub Releases: $updater"
-	sudo bash -c "cat > '$updater' <<'UPD'
+	sudo tee "$updater" >/dev/null <<'UPD'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -266,7 +266,7 @@ rsync -a --delete \
 echo "[+] Перезапускаю сервис"
 sudo systemctl restart cryptoboiler.service || true
 echo "[ok] Обновление завершено"
-UPD"
+UPD
 	sudo chmod +x "$updater"
 }
 
