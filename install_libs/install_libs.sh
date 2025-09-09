@@ -22,13 +22,14 @@ LXSESSION_AUTOSTART="$LXSESSION_AUTOSTART_DIR/autostart"
 START_SH="$PROJECT_DIR/start/start_controller.sh"
 
 usage() {
-	echo "Usage: $0 [--venv <path>] [--check] [--user <name>] [--no-systemd] [--no-lightdm] [--no-kiosk] [--no-upgrade] [--reboot]" >&2
+	echo "Usage: $0 [--venv <path>] [--check] [--user <name>] [--no-systemd] [--no-lightdm] [--no-kiosk] [--no-vnc] [--no-upgrade] [--reboot]" >&2
 	echo "  --venv <path>    Установить Python-пакеты в указанный venv через pip" >&2
 	echo "  --check          Проверить импорты после установки" >&2
 	echo "  --user <name>    Пользователь для автологина LightDM (по умолчанию SUDO_USER/USER)" >&2
 	echo "  --no-systemd     Пропустить установку/включение systemd-сервиса" >&2
 	echo "  --no-lightdm     Пропустить настройку автологина LightDM" >&2
 	echo "  --no-kiosk       Пропустить настройку киоск-режима (оконного)" >&2
+	echo "  --no-vnc         Пропустить настройку VNC" >&2
 	echo "  --no-upgrade     Пропустить apt upgrade (оставить только install)" >&2
 	echo "  --reboot         Перезагрузить систему в конце" >&2
 }
@@ -38,6 +39,7 @@ DO_CHECK=false
 SKIP_SYSTEMD=false
 SKIP_LIGHTDM=false
 SKIP_KIOSK=false
+SKIP_VNC=false
 SKIP_UPGRADE=false
 DO_REBOOT=false
 AUTOLOGIN_USER="${SUDO_USER:-${USER}}"
@@ -67,6 +69,9 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--no-kiosk)
 			SKIP_KIOSK=true; shift;
+			;;
+		--no-vnc)
+			SKIP_VNC=true; shift;
 			;;
 		--no-upgrade)
 			SKIP_UPGRADE=true; shift;
@@ -105,6 +110,8 @@ step_apt_install() {
 		raspberrypi-ui-mods \
 		lightdm \
 		x11-xserver-utils \
+		curl \
+		rsync \
 		python3-pip \
 		python3-kivy \
 		python3-pycryptodome \
@@ -137,6 +144,15 @@ step_lightdm_autologin() {
 	printf "[Seat:*]\nautologin-user=%s\nautologin-user-timeout=0\n" "$AUTOLOGIN_USER" | sudo tee "$AUTOLOGIN_CONF" >/dev/null
 }
 
+step_add_user_gpio() {
+	log "Добавляю пользователя $AUTOLOGIN_USER в группу gpio"
+	if id "$AUTOLOGIN_USER" >/dev/null 2>&1; then
+		sudo usermod -a -G gpio "$AUTOLOGIN_USER" || warn "Не удалось добавить пользователя в группу gpio"
+	else
+		warn "Пользователь $AUTOLOGIN_USER не найден — пропускаю добавление в gpio"
+	fi
+}
+
 step_systemd_service() {
 	$SKIP_SYSTEMD && { warn "Пропускаю установку systemd-сервиса (задан --no-systemd)"; return; }
 	log "Устанавливаю systemd-сервис cryptoboiler"
@@ -149,12 +165,12 @@ step_systemd_service() {
 
 step_kiosk_windowed() {
 	$SKIP_KIOSK && { warn "Пропускаю настройку киоск-режима (задан --no-kiosk)"; return; }
-	log "Создаю конфиг Kivy (оконный режим, курсор включен, рамка окна)"
+	log "Создаю конфиг Kivy (полноэкранный киоск, курсор включен)"
 	mkdir -p "$KIVY_CONFIG_DIR"
 	cat > "$KIVY_CONFIG" << 'EOF'
 [graphics]
-fullscreen = 0
-borderless = 0
+fullscreen = 1
+borderless = 1
 show_cursor = 1
 width = 800
 height = 480
@@ -166,14 +182,92 @@ EOF
 @xset -dpms
 @xset s noblank
 EOF
-	if [[ -f "$START_SH" ]]; then
-		if grep -q -- "--auto-fullscreen" "$START_SH"; then
-			log "Убираю --auto-fullscreen из скрипта запуска"
-			sudo sed -i 's/ start_all_modules.py --auto-fullscreen/ start_all_modules.py/' "$START_SH"
-		fi
-	else
+	if [[ ! -f "$START_SH" ]]; then
 		warn "Скрипт запуска не найден: $START_SH"
 	fi
+}
+
+step_vnc_setup() {
+	$SKIP_VNC && { warn "Пропускаю настройку VNC (задан --no-vnc)"; return; }
+	if [[ -x "$PROJECT_DIR/install_libs/install_realVNC.sh" ]]; then
+		log "Настраиваю VNC (как на текущем устройстве)"
+		bash "$PROJECT_DIR/install_libs/install_realVNC.sh" || warn "Скрипт VNC завершился с предупреждением"
+	else
+		warn "Скрипт VNC не найден: $PROJECT_DIR/install_libs/install_realVNC.sh"
+	fi
+}
+
+step_install_updater() {
+	local updater="/usr/local/bin/cryptoboiler-update"
+	log "Устанавливаю скрипт обновления через GitHub Releases: $updater"
+	sudo bash -c "cat > '$updater' <<'UPD'
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_DIR="/home/${SUDO_USER:-$USER}/CONTROLLER"
+
+# Параметр: --repo-url=https://github.com/<owner>/<repo>
+REPO_URL=""
+for arg in "$@"; do
+  case "$arg" in
+    --repo-url=*) REPO_URL="${arg#*=}" ;;
+  esac
+done
+
+if [[ -z "$REPO_URL" ]]; then
+  if command -v git >/dev/null 2>&1 && [[ -d "$PROJECT_DIR/.git" ]]; then
+    REPO_URL=$(git -C "$PROJECT_DIR" remote get-url origin || true)
+  fi
+fi
+
+if [[ -z "$REPO_URL" ]]; then
+  echo "error: не удалось определить репозиторий. Запустите с --repo-url=https://github.com/<owner>/<repo>" >&2
+  exit 1
+fi
+
+# Извлекаем owner/repo
+OWNER=""
+REPO=""
+if [[ "$REPO_URL" =~ github.com[:/]+([^/]+)/([^/.]+) ]]; then
+  OWNER="${BASH_REMATCH[1]}"
+  REPO="${BASH_REMATCH[2]}"
+else
+  echo "error: нераспознанный URL репозитория: $REPO_URL" >&2
+  exit 1
+fi
+
+echo "[+] Проверяю последнюю версию Releases для $OWNER/$REPO"
+TARBALL_URL=$(curl -s https://api.github.com/repos/$OWNER/$REPO/releases/latest | grep -m1 '"tarball_url"' | cut -d '"' -f4 || true)
+if [[ -z "$TARBALL_URL" ]]; then
+  echo "error: не удалось получить tarball_url" >&2
+  exit 1
+fi
+
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+echo "[+] Скачиваю: $TARBALL_URL"
+curl -L "$TARBALL_URL" -o "$TMPDIR/release.tar.gz"
+
+echo "[+] Распаковываю архив"
+tar -xzf "$TMPDIR/release.tar.gz" -C "$TMPDIR"
+SRCDIR=$(tar -tzf "$TMPDIR/release.tar.gz" | head -1 | cut -d/ -f1)
+if [[ -z "$SRCDIR" || ! -d "$TMPDIR/$SRCDIR" ]]; then
+  echo "error: не найден исходный каталог после распаковки" >&2
+  exit 1
+fi
+
+echo "[+] Обновляю файлы проекта (с сохранением пользовательских настроек GUI)"
+sudo apt-get install -y rsync >/dev/null 2>&1 || true
+rsync -a --delete \
+  --exclude 'data_manager/config/gui_settings.json' \
+  --exclude 'data_manager/config/backups/' \
+  "$TMPDIR/$SRCDIR/" "$PROJECT_DIR/"
+
+echo "[+] Перезапускаю сервис"
+sudo systemctl restart cryptoboiler.service || true
+echo "[ok] Обновление завершено"
+UPD"
+	sudo chmod +x "$updater"
 }
 
 run_checks() {
@@ -209,8 +303,11 @@ step_apt_install
 ensure_venv
 step_python_requirements
 step_lightdm_autologin
+step_add_user_gpio
 step_systemd_service
 step_kiosk_windowed
+step_vnc_setup
+step_install_updater
 
 $DO_CHECK && run_checks || true
 
