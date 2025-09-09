@@ -98,7 +98,11 @@ step_apt_prepare() {
 	sudo DEBIAN_FRONTEND=noninteractive apt-get update
 	if ! $SKIP_UPGRADE; then
 		log "Обновляю установленные пакеты (apt upgrade)"
-		sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade
+		sudo DEBIAN_FRONTEND=noninteractive \
+			apt-get -y \
+			-o Dpkg::Options::="--force-confdef" \
+			-o Dpkg::Options::="--force-confold" \
+			upgrade
 	else
 		warn "Пропускаю apt upgrade (задан --no-upgrade)"
 	fi
