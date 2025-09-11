@@ -1152,12 +1152,12 @@ class TemperatureControllerGUI(App):
         root_layout.add_widget(self.temp_card)
         
         # Лого в верхней части экрана по центру
-        logo_path = os.path.join(os.path.dirname(__file__), 'images', 'Transparent Logo.png')
+        logo_path = os.path.join(os.path.dirname(__file__), 'images', 'Transparent_Logo.png')
         self.logo = Image(
             source=logo_path,
             size_hint=(None, None),
             size=(dp(400), dp(240)),  # Фиксированный размер
-            pos_hint={'center_x': 0.5, 'top': 0.98},
+            pos_hint={'center_x': 0.5, 'top': 1.1},
             allow_stretch=True,
             keep_ratio=True
         )
