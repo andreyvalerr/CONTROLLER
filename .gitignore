@@ -63,3 +63,5 @@ Thumbs.db
 # FIFO файлы от IDE
 *.fifo
 .lgd-* 
+
+data_manager/config/gui_settings.json
