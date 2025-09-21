@@ -65,3 +65,6 @@ Thumbs.db
 .lgd-* 
 
 data_manager/config/gui_settings.json
+
+# Резервные копии
+data_manager/config/backups/
