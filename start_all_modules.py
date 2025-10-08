@@ -150,11 +150,13 @@ def _ensure_logs_dir() -> str:
     return logs_dir
 
 def _get_snapshot_line() -> str:
-    """Формирует одну текстовую строку: "HH:MM:SS,темп. 49.6, охл. ВКЛ., нагр. ВЫКЛ.""" 
+    """Формирует строку: "HH:MM:SS, уставка 45.0-55.0, текущая темп. 49.6, охл. ВКЛ., нагр. ВЫКЛ.""" 
     ts = datetime.now().strftime('%H:%M:%S')
     temp = None
     upper_on = False
     lower_on = False
+    set_min = None
+    set_max = None
 
     try:
         # Температура: сначала пробуем через valve_controller_instance (быстрее и синхронно)
@@ -183,17 +185,40 @@ def _get_snapshot_line() -> str:
             # Если контроллер не активен, считаем клапаны выключенными
             upper_on = False
             lower_on = False
+        # Уставки стараемся взять из работающего регулятора
+        try:
+            if valve_controller_instance is not None and valve_controller_instance.is_running():
+                cfg = valve_controller_instance.temperature_regulator.config
+                set_min = getattr(cfg, 'min_temperature', None)
+                set_max = getattr(cfg, 'max_temperature', None)
+        except Exception:
+            set_min = None
+            set_max = None
+        # Если нет уставок из контроллера — берём из data_manager
+        if set_min is None or set_max is None:
+            try:
+                from data_manager.core_system import get_temperature_settings
+                settings = get_temperature_settings()
+                if settings:
+                    set_min = settings.get('min_temperature', set_min)
+                    set_max = settings.get('max_temperature', set_max)
+            except Exception:
+                pass
     except Exception:
         pass
 
     # Человекочитаемая строка
     if temp is None:
-        temp_part = "темп. н/д"
+        temp_part = "текущая темп. н/д"
     else:
-        temp_part = f"темп. {float(temp):.1f}"
+        temp_part = f"текущая темп. {float(temp):.1f}"
+    if set_min is not None and set_max is not None:
+        set_part = f"уставка {float(set_min):.1f}-{float(set_max):.1f}"
+    else:
+        set_part = "уставка н/д"
     cooling_part = f"охл. {'ВКЛ.' if upper_on else 'ВЫКЛ.'}"
     heating_part = f"нагр. {'ВКЛ.' if lower_on else 'ВЫКЛ.'}"
-    return f"{ts},{temp_part}, {cooling_part}, {heating_part}"
+    return f"{ts}, {set_part}, {temp_part}, {cooling_part}, {heating_part}"
 
 def _write_rolling_snapshot(lines: list[str]):
     """Атомарно записывает снапшот из последних строк в rolling.log."""
