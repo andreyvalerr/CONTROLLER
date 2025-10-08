@@ -62,7 +62,7 @@ class SafetyConfig:
     max_cooling_time: float = 60.0
     
     # Минимальное время между включениями (секунды)
-    min_cycle_time: float = 1.0
+    min_cycle_time: float = 5.0
     
     # Максимальное количество переключений в час
     max_switches_per_hour: int = 6600

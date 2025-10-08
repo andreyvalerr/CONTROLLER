@@ -11,7 +11,7 @@ from typing import Optional, Callable
 from dataclasses import dataclass
 
 from .relay_controller import RelayController
-from .temperature_regulator import TemperatureRegulator, RegulatorConfig
+from .temperature_regulator import TemperatureRegulator, RegulatorConfig, RegulatorAlgorithm
 from .config import (
     RelayConfig, TemperatureConfig, MonitoringConfig, SafetyConfig,
     load_config_from_env, validate_config
@@ -297,7 +297,7 @@ class ValveController:
         
         return result
     
-    def resume_automatic_control(self) -> bool:
+    def resume_automatic_control(self, algorithm: object = None) -> bool:
         """
         Возобновление автоматического управления
         
@@ -307,6 +307,14 @@ class ValveController:
         if not self._is_running:
             self.logger.error("Контроллер не запущен")
             return False
+        
+        # Установка алгоритма при необходимости
+        try:
+            if algorithm is not None:
+                # Разрешаем передавать строку ('predictive'|'hysteresis') или Enum
+                self.temperature_regulator.set_algorithm(algorithm)
+        except Exception as e:
+            self.logger.error(f"Ошибка установки алгоритма регулирования: {e}")
         
         # Запуск регулятора температуры
         result = self.temperature_regulator.start()
