@@ -476,17 +476,22 @@ class SettingsPage(Popup):
             self.min_temp = 45.0
             self.max_temp = 55.0
 
-        # Инициализация режима работы (Авто/Ручной) из файла настроек
+        # Инициализация режима работы (Авто/Авто (предиктивный)/Ручной) из файла настроек
         try:
             from data_manager.settings_manager import get_settings_manager
             sm = get_settings_manager()
-            mode_value = sm.load_mode()  # 'auto' | 'manual' | None
+            mode_value = sm.load_mode()  # 'auto' | 'manual' | 'predictive' | None
         except Exception:
             mode_value = None
-        if isinstance(mode_value, str) and mode_value.lower() == 'manual':
-            self.mode_display = 'Ручной'
+        if isinstance(mode_value, str):
+            mv = mode_value.strip().lower()
+            if mv == 'manual':
+                self.mode_display = 'Ручной'
+            elif mv == 'predictive':
+                self.mode_display = 'Авто (предиктивный)'
+            else:
+                self.mode_display = 'Авто'
         else:
-            # по умолчанию Авто
             self.mode_display = 'Авто'
         
         # Основной контейнер со скроллингом
@@ -703,7 +708,7 @@ class SettingsPage(Popup):
         
         self.mode_spinner = Spinner(
             text=self.mode_display,
-            values=['Авто', 'Ручной'],
+            values=['Авто', 'Авто (предиктивный)', 'Ручной'],
             size_hint_y=None,
             height=dp(40),
             background_color=(0.3, 0.3, 0.3, 1)
@@ -1069,7 +1074,13 @@ class SettingsPage(Popup):
         # Сохраняем режим работы через Data Manager (единый источник истины)
         try:
             selected_text = getattr(self, 'mode_spinner', None).text if hasattr(self, 'mode_spinner') else 'Авто'
-            normalized = 'auto' if selected_text.strip().lower().startswith('авто') else 'manual'
+            st = selected_text.strip().lower()
+            if st.startswith('ручной'):
+                normalized = 'manual'
+            elif 'предик' in st:
+                normalized = 'predictive'
+            else:
+                normalized = 'auto'
             if set_mode(normalized, source_module="gui_interface"):
                 print(f"Режим работы сохранен через Data Manager: {selected_text} ({normalized})")
                 # Обновляем локально состояние режима в главном приложении и применяем видимость кнопки
@@ -1347,13 +1358,15 @@ class TemperatureControllerGUI(App):
             print(f"Ошибка при переключении полноэкранного режима: {e}")
 
     def _get_current_mode(self):
-        """Чтение текущего режима из gui_settings.json (auto/manual)."""
+        """Чтение текущего режима из gui_settings.json (auto/manual/predictive)."""
         try:
             from data_manager.settings_manager import get_settings_manager
             sm = get_settings_manager()
             mode_value = sm.load_mode()
-            if isinstance(mode_value, str) and mode_value.lower() in ('manual', 'auto'):
-                return mode_value.lower()
+            if isinstance(mode_value, str):
+                mv = mode_value.lower()
+                if mv in ('manual', 'auto', 'predictive'):
+                    return mv
         except Exception:
             pass
         return 'auto'

@@ -380,16 +380,18 @@ class CoreSystem:
                 )
                 print(f"IP адрес ASIC загружен из настроек: {ip_addr}")
             
-            # Загружаем режим работы (auto/manual) и публикуем
+            # Загружаем режим работы (auto/manual/predictive) и публикуем
             try:
                 mode_value = self.settings_manager.load_mode()
                 if isinstance(mode_value, str) and mode_value:
                     normalized = mode_value.strip().lower()
                     if normalized in ("авто", "automatic"):
                         normalized = "auto"
+                    elif normalized in ("авто (предиктивный)", "предиктивный", "predictive"):
+                        normalized = "predictive"
                     elif normalized in ("ручной", "manual"):
                         normalized = "manual"
-                    if normalized in ("auto", "manual"):
+                    if normalized in ("auto", "manual", "predictive"):
                         self.data_manager.set_data(
                             DataType.MODE,
                             normalized,
@@ -727,7 +729,7 @@ def get_asic_ip() -> Optional[str]:
 # Работа с режимом (mode) и охлаждением (cooling_state)
 def set_mode(mode_value: str, source_module: str = "external") -> bool:
     """
-    Установка режима работы системы (auto/manual) в data_manager и сохранение в файл настроек
+    Установка режима работы системы (auto/manual/predictive) в data_manager и сохранение в файл настроек
     """
     global _global_core_system
     if not _global_core_system:
@@ -736,9 +738,11 @@ def set_mode(mode_value: str, source_module: str = "external") -> bool:
         normalized = str(mode_value).strip().lower()
         if normalized in ("авто", "automatic"):
             normalized = "auto"
+        elif normalized in ("авто (предиктивный)", "предиктивный", "predictive"):
+            normalized = "predictive"
         elif normalized in ("ручной", "manual"):
             normalized = "manual"
-        if normalized not in ("auto", "manual"):
+        if normalized not in ("auto", "manual", "predictive"):
             return False
         saved = _global_core_system.data_manager.set_data(
             DataType.MODE,

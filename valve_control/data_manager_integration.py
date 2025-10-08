@@ -289,11 +289,13 @@ def start_mode_cooling_listener() -> bool:
                 mode_val = str(entry.value).strip().lower() if entry and entry.value is not None else None
                 if mode_val in ("авто", "automatic"):
                     mode_val = "auto"
+                if mode_val in ("авто (предиктивный)", "предиктивный", "predictive"):
+                    mode_val = "predictive"
                 if mode_val in ("ручной", "manual"):
                     mode_val = "manual"
                 if mode_val == "manual":
                     set_manual_mode()
-                elif mode_val == "auto":
+                elif mode_val in ("auto", "predictive"):
                     set_auto_mode()
             except Exception as e:
                 print(f"[valve_control] Ошибка обработчика MODE: {e}")

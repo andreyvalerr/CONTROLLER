@@ -182,20 +182,22 @@ class SettingsManager:
         Сохранение режима работы в gui_settings.json с резервной копией.
 
         Args:
-            mode_value: Строка режима ('auto' или 'manual', допускаются 'Авто'/'Ручной').
+            mode_value: Строка режима ('auto' | 'manual' | 'predictive', допускаются 'Авто'/'Ручной'/'Авто (предиктивный)').
 
         Returns:
             bool: True если успешно сохранен
         """
         try:
-            # Нормализация значения ('Авто'/'Ручной' -> 'auto'/'manual')
+            # Нормализация значения ('Авто'/'Ручной'/'Авто (предиктивный)' -> 'auto'/'manual'/'predictive')
             normalized = mode_value.strip().lower()
             if normalized in ("авто", "автоматический", "automatic"):
                 normalized = "auto"
+            elif normalized in ("авто (предиктивный)", "предиктивный", "predictive"):
+                normalized = "predictive"
             elif normalized in ("ручной", "manual"):
                 normalized = "manual"
 
-            if normalized not in ("auto", "manual"):
+            if normalized not in ("auto", "manual", "predictive"):
                 self._log_error(f"Недопустимое значение режима: {mode_value}")
                 return False
 
