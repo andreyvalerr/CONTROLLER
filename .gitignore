@@ -64,3 +64,4 @@ Thumbs.db
 *.fifo
 .lgd-* 
 
+data_manager/config/gui_settings.json

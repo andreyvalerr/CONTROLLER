@@ -9,9 +9,13 @@ import sys
 import time
 import threading
 from datetime import datetime
+from collections import deque
 
 # Глобальная переменная для valve controller
 valve_controller_instance = None
+_rolling_log_thread = None
+_rolling_log_stop = threading.Event()
+_rolling_log_buffer = deque(maxlen=120)
 
 # Добавляем пути к модулям
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -136,6 +140,111 @@ def start_valve_control():
         print(f"❌ Ошибка при запуске valve_control: {e}")
         return False
 
+def _ensure_logs_dir() -> str:
+    """Гарантированно создаёт директорию логов и возвращает путь."""
+    logs_dir = os.path.join(current_dir, 'logs')
+    try:
+        os.makedirs(logs_dir, exist_ok=True)
+    except Exception:
+        pass
+    return logs_dir
+
+def _get_snapshot_line() -> str:
+    """Формирует одну текстовую строку: "HH:MM:SS,темп. 49.6, охл. ВКЛ., нагр. ВЫКЛ.""" 
+    ts = datetime.now().strftime('%H:%M:%S')
+    temp = None
+    upper_on = False
+    lower_on = False
+
+    try:
+        # Температура: сначала пробуем через valve_controller_instance (быстрее и синхронно)
+        global valve_controller_instance
+        if valve_controller_instance is not None and valve_controller_instance.is_running():
+            try:
+                temp = valve_controller_instance.get_current_temperature()
+            except Exception:
+                temp = None
+
+            try:
+                upper_on = bool(valve_controller_instance.relay_controller.get_relay_state())
+            except Exception:
+                upper_on = False
+            try:
+                lower_on = bool(valve_controller_instance.relay_controller_low.get_relay_state())
+            except Exception:
+                lower_on = False
+        else:
+            # Резерв: берём температуру из data_manager
+            try:
+                from data_manager.core_system import get_temperature_data
+                temp = get_temperature_data()
+            except Exception:
+                temp = None
+            # Если контроллер не активен, считаем клапаны выключенными
+            upper_on = False
+            lower_on = False
+    except Exception:
+        pass
+
+    # Человекочитаемая строка
+    if temp is None:
+        temp_part = "темп. н/д"
+    else:
+        temp_part = f"темп. {float(temp):.1f}"
+    cooling_part = f"охл. {'ВКЛ.' if upper_on else 'ВЫКЛ.'}"
+    heating_part = f"нагр. {'ВКЛ.' if lower_on else 'ВЫКЛ.'}"
+    return f"{ts},{temp_part}, {cooling_part}, {heating_part}"
+
+def _write_rolling_snapshot(lines: list[str]):
+    """Атомарно записывает снапшот из последних строк в rolling.log."""
+    logs_dir = _ensure_logs_dir()
+    target = os.path.join(logs_dir, 'rolling.log')
+    tmp = target + '.tmp'
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            for line in lines:
+                f.write(line + '\n')
+        os.replace(tmp, target)
+    except Exception:
+        # В случае ошибки просто игнорируем, чтобы не тормозить основной цикл
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+
+def _rolling_logger_loop(stop_event: threading.Event):
+    """Фоновый цикл: каждую секунду добавляет запись и перезаписывает файл снапшотом."""
+    while not stop_event.is_set():
+        try:
+            line = _get_snapshot_line()
+            _rolling_log_buffer.append(line)
+            # Снимок текущего буфера
+            _write_rolling_snapshot(list(_rolling_log_buffer))
+        except Exception:
+            pass
+        # Ожидание 1 секунду с возможностью досрочной остановки
+        stop_event.wait(1.0)
+
+def start_rolling_logger():
+    """Запускает фоновый rolling-логгер (120 последних секунд)."""
+    global _rolling_log_thread, _rolling_log_stop
+    if _rolling_log_thread is not None and _rolling_log_thread.is_alive():
+        return
+    _rolling_log_stop.clear()
+    _rolling_log_thread = threading.Thread(target=_rolling_logger_loop, args=(_rolling_log_stop,), daemon=True)
+    _rolling_log_thread.start()
+
+def stop_rolling_logger():
+    """Останавливает фоновый rolling-логгер."""
+    global _rolling_log_thread, _rolling_log_stop
+    try:
+        _rolling_log_stop.set()
+        if _rolling_log_thread is not None and _rolling_log_thread.is_alive():
+            _rolling_log_thread.join(timeout=3.0)
+    except Exception:
+        pass
+
 def start_gui():
     """Запуск GUI интерфейса"""
     try:
@@ -234,7 +343,14 @@ def main():
     print("=" * 50)
     print()
     
-    # 4. Запуск GUI (блокирующий)
+    # 4. Запуск rolling-логгера (буфер 120 секунд)
+    try:
+        start_rolling_logger()
+        print("✅ Rolling логгер запущен (logs/rolling.log)")
+    except Exception as e:
+        print(f"⚠️ Не удалось запустить rolling логгер: {e}")
+    
+    # 5. Запуск GUI (блокирующий)
     try:
         start_gui()
     except KeyboardInterrupt:
@@ -273,6 +389,13 @@ def main():
         stop_mode_cooling_listener()
         print("✅ Valve Control listener режима/охлаждения остановлен")
     except:
+        pass
+    
+    # Остановка rolling-логгера
+    try:
+        stop_rolling_logger()
+        print("✅ Rolling логгер остановлен")
+    except Exception:
         pass
     
     print("✅ Система остановлена")
