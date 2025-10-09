@@ -1,8 +1,8 @@
 {
   "version": "1.0",
-  "last_updated": "2025-10-08T23:24:35.316944",
+  "last_updated": "2025-10-09T23:59:57.657589",
   "temperature_settings": {
-    "min_temp": 50.0,
+    "min_temp": 47.0,
     "max_temp": 55.0
   },
   "metadata": {
@@ -16,6 +16,6 @@
     "mode": "predictive"
   },
   "cooling_settings": {
-    "cooling_on": false
+    "cooling_on": true
   }
 }

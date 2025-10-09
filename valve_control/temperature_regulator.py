@@ -34,14 +34,16 @@ class RegulatorConfig:
     temperature_config: TemperatureConfig
     safety_config: SafetyConfig
     # Пороги температуры (получаются из data_manager)
-    min_temperature: float = 45.0  # По умолчанию, будет обновлено из data_manager
-    max_temperature: float = 50.0  # По умолчанию, будет обновлено из data_manager
+    min_temperature: float = 47.0  # По умолчанию, будет обновлено из data_manager
+    max_temperature: float = 55.0  # По умолчанию, будет обновлено из data_manager
     # Параметры предиктивного алгоритма
     predictive_lookahead_s: float = 5.0          # горизонт прогноза, сек
     predictive_min_rate_c_per_s: float = 0.05    # минимальная скорость изменения T для предиктивных действий
-    predictive_pre_on_margin_c: float = 0.2      # досрочное включение, запас по порогу (°C)
-    predictive_pre_off_margin_c: float = 0.1     # досрочное выключение, запас по порогу (°C)
-    predictive_slope_window_s: float = 10.0      # окно усреднения скорости (сек)
+    predictive_pre_on_margin_c: float = 0.5      # досрочное включение, запас по порогу (°C)
+    predictive_pre_off_margin_c: float = 0.5     # досрочное выключение, запас по порогу (°C)
+    predictive_slope_window_s: float = 5.0      # окно усреднения скорости (сек)
+    predictive_reverse_rate_c_per_s: float = 0.02 # требуемая скорость разворота тренда (°C/с)
+    predictive_reverse_temp_margin_c: float = 0.10 # требуемый отскок от экстремума (°C)
 
 class TemperatureRegulator:
     """
@@ -112,6 +114,9 @@ class TemperatureRegulator:
         self._last_slope_c_per_s: Optional[float] = None
         self._last_pred_high: Optional[float] = None
         self._last_pred_low: Optional[float] = None
+        # Экстремумы с момента включения каналов для контроля разворота
+        self._high_since_on_min_temp: Optional[float] = None
+        self._low_since_on_max_temp: Optional[float] = None
         
     def start(self) -> bool:
         """
@@ -294,8 +299,8 @@ class TemperatureRegulator:
         # Параметры предиктивного алгоритма
         lookahead = max(0.0, float(getattr(self.config, 'predictive_lookahead_s', 5.0)))
         min_rate = max(0.0, float(getattr(self.config, 'predictive_min_rate_c_per_s', 0.05)))
-        pre_on_margin = max(0.0, float(getattr(self.config, 'predictive_pre_on_margin_c', 1.1)))
-        pre_off_margin = max(0.0, float(getattr(self.config, 'predictive_pre_off_margin_c', 1.1)))
+        pre_on_margin = max(0.0, float(getattr(self.config, 'predictive_pre_on_margin_c', 2.0)))
+        pre_off_margin = max(0.0, float(getattr(self.config, 'predictive_pre_off_margin_c', 2.0)))
         slope = self._compute_temperature_slope()
 
         # Прогноз температуры через lookahead секунд
@@ -328,12 +333,23 @@ class TemperatureRegulator:
                 self.logger.debug(
                     f"PREDICTIVE HIGH ON trigger: slope={slope:.3f}, predicted={predicted:.2f}°C >= {max_temp - pre_on_margin:.2f}°C"
                 )
-            # Упреждающее выключение охлаждения, если тренд вниз и скоро уйдём ниже зоны гистерезиса
-            if high_active and slope is not None and slope < -min_rate and predicted <= (max_temp - hysteresis + pre_off_margin):
-                should_high_off = True
-                self.logger.debug(
-                    f"PREDICTIVE HIGH OFF trigger: slope={slope:.3f}, predicted={predicted:.2f}°C <= {max_temp - hysteresis + pre_off_margin:.2f}°C"
-                )
+            # Выключение только после разворота тренда вверх с отскоком от минимума
+            reverse_rate = float(getattr(self.config, 'predictive_reverse_rate_c_per_s', 0.02))
+            reverse_margin = float(getattr(self.config, 'predictive_reverse_temp_margin_c', 0.10))
+            if high_active and slope is not None and slope >= reverse_rate:
+                if self._high_since_on_min_temp is not None and temperature >= (self._high_since_on_min_temp + reverse_margin):
+                    # Разрешаем выключение HIGH по развороту только если температура уже
+                    # опустилась ниже (max_temp - pre_off_margin)
+                    if temperature <= (max_temp - pre_off_margin):
+                        should_high_off = True
+                        self.logger.debug(
+                            f"PREDICTIVE HIGH OFF (reversal + below max-pre_off): slope={slope:.3f}>= {reverse_rate:.3f}, "
+                            f"T={temperature:.2f}°C <= {max_temp - pre_off_margin:.2f}°C"
+                        )
+                    else:
+                        self.logger.debug(
+                            f"PREDICTIVE HIGH OFF blocked: T={temperature:.2f}°C > {max_temp - pre_off_margin:.2f}°C (max_temp - pre_off_margin)"
+                        )
 
         # Применяем решения по верхнему порогу
         if should_high_on and not high_active:
@@ -353,9 +369,13 @@ class TemperatureRegulator:
                 self.logger.info(f"🔮 HIGH ON (predictive): T={temperature:.2f}°C")
                 if self._safe_turn_on(self.relay_controller, channel_name="HIGH"):
                     self._cooling_cycles += 1
+                    # Сброс и фиксация минимума после включения
+                    self._high_since_on_min_temp = temperature
         elif should_high_off and high_active:
             self.logger.info(f"🔮 HIGH OFF (predictive): T={temperature:.2f}°C")
             self._safe_turn_off(self.relay_controller, channel_name="HIGH")
+            # Сброс трекинга минимума
+            self._high_since_on_min_temp = None
 
         # НИЖНИЙ ПОРОГ (ОТОПЛЕНИЕ/ЗАКРЫТИЕ КЛАПАНА, GPIO22)
         if self.relay_controller_low is not None:
@@ -376,12 +396,16 @@ class TemperatureRegulator:
                     self.logger.debug(
                         f"PREDICTIVE LOW ON trigger: slope={slope:.3f}, predicted={predicted:.2f}°C <= {min_temp + pre_on_margin:.2f}°C"
                     )
-                # Упреждающее выключение нижнего канала, если тренд вверх и скоро выйдем из зоны
-                if low_active and slope is not None and slope > min_rate and predicted >= (min_temp + hysteresis - pre_off_margin):
-                    should_low_off = True
-                    self.logger.debug(
-                        f"PREDICTIVE LOW OFF trigger: slope={slope:.3f}, predicted={predicted:.2f}°C >= {min_temp + hysteresis - pre_off_margin:.2f}°C"
-                    )
+                # Выключение только после разворота тренда вниз с отскоком от максимума
+                reverse_rate = float(getattr(self.config, 'predictive_reverse_rate_c_per_s', 0.02))
+                reverse_margin = float(getattr(self.config, 'predictive_reverse_temp_margin_c', 0.10))
+                if low_active and slope is not None and (-slope) >= reverse_rate:
+                    if self._low_since_on_max_temp is not None and temperature <= (self._low_since_on_max_temp - reverse_margin):
+                        should_low_off = True
+                        self.logger.debug(
+                            f"PREDICTIVE LOW OFF (reversal) trigger: -slope={-slope:.3f}>= {reverse_rate:.3f}, "
+                            f"T={temperature:.2f}°C <= max_since_on-{reverse_margin:.2f} ({self._low_since_on_max_temp - reverse_margin:.2f}°C)"
+                        )
 
             # Применяем решения по нижнему порогу
             if should_low_on and not low_active:
@@ -396,10 +420,14 @@ class TemperatureRegulator:
                         should_low_on = False
                 if should_low_on:
                     self.logger.info(f"🔮 LOW ON (predictive): T={temperature:.2f}°C")
-                    self._safe_turn_on(self.relay_controller_low, channel_name="LOW")
+                    if self._safe_turn_on(self.relay_controller_low, channel_name="LOW"):
+                        # Сброс и фиксация максимума после включения
+                        self._low_since_on_max_temp = temperature
             elif should_low_off and low_active:
                 self.logger.info(f"🔮 LOW OFF (predictive): T={temperature:.2f}°C")
                 self._safe_turn_off(self.relay_controller_low, channel_name="LOW")
+                # Сброс трекинга максимума
+                self._low_since_on_max_temp = None
 
     def _can_switch_now(self, controller: RelayController) -> tuple[bool, float, float]:
         """Проверяет, можно ли переключить данный канал с учётом min_cycle_time.
