@@ -294,8 +294,8 @@ class TemperatureRegulator:
         # Параметры предиктивного алгоритма
         lookahead = max(0.0, float(getattr(self.config, 'predictive_lookahead_s', 5.0)))
         min_rate = max(0.0, float(getattr(self.config, 'predictive_min_rate_c_per_s', 0.05)))
-        pre_on_margin = max(0.0, float(getattr(self.config, 'predictive_pre_on_margin_c', 0.2)))
-        pre_off_margin = max(0.0, float(getattr(self.config, 'predictive_pre_off_margin_c', 0.1)))
+        pre_on_margin = max(0.0, float(getattr(self.config, 'predictive_pre_on_margin_c', 1.1)))
+        pre_off_margin = max(0.0, float(getattr(self.config, 'predictive_pre_off_margin_c', 1.1)))
         slope = self._compute_temperature_slope()
 
         # Прогноз температуры через lookahead секунд
@@ -337,12 +337,22 @@ class TemperatureRegulator:
 
         # Применяем решения по верхнему порогу
         if should_high_on and not high_active:
-            # В целях взаимоисключения — выключим нижний канал, если он активен
+            # Взаимоисключение: если низкий канал активен, пытаемся его выключить.
             if low_active and self.relay_controller_low is not None:
-                self._safe_turn_off(self.relay_controller_low, channel_name="LOW")
-            self.logger.info(f"🔮 HIGH ON (predictive): T={temperature:.2f}°C")
-            if self._safe_turn_on(self.relay_controller, channel_name="HIGH"):
-                self._cooling_cycles += 1
+                off_ok = self._safe_turn_off(self.relay_controller_low, channel_name="LOW")
+                # Перепроверка состояния после попытки
+                try:
+                    low_active = self.relay_controller_low.get_relay_state()
+                except Exception:
+                    pass
+                if not off_ok and low_active:
+                    # Блокируем включение HIGH до окончания min_cycle_time
+                    self.logger.debug("PREDICTIVE HIGH ON blocked: LOW still ON (min_cycle_time)")
+                    should_high_on = False
+            if should_high_on:
+                self.logger.info(f"🔮 HIGH ON (predictive): T={temperature:.2f}°C")
+                if self._safe_turn_on(self.relay_controller, channel_name="HIGH"):
+                    self._cooling_cycles += 1
         elif should_high_off and high_active:
             self.logger.info(f"🔮 HIGH OFF (predictive): T={temperature:.2f}°C")
             self._safe_turn_off(self.relay_controller, channel_name="HIGH")
@@ -376,9 +386,17 @@ class TemperatureRegulator:
             # Применяем решения по нижнему порогу
             if should_low_on and not low_active:
                 if high_active:
-                    self._safe_turn_off(self.relay_controller, channel_name="HIGH")
-                self.logger.info(f"🔮 LOW ON (predictive): T={temperature:.2f}°C")
-                self._safe_turn_on(self.relay_controller_low, channel_name="LOW")
+                    off_ok = self._safe_turn_off(self.relay_controller, channel_name="HIGH")
+                    try:
+                        high_active = self.relay_controller.get_relay_state()
+                    except Exception:
+                        pass
+                    if not off_ok and high_active:
+                        self.logger.debug("PREDICTIVE LOW ON blocked: HIGH still ON (min_cycle_time)")
+                        should_low_on = False
+                if should_low_on:
+                    self.logger.info(f"🔮 LOW ON (predictive): T={temperature:.2f}°C")
+                    self._safe_turn_on(self.relay_controller_low, channel_name="LOW")
             elif should_low_off and low_active:
                 self.logger.info(f"🔮 LOW OFF (predictive): T={temperature:.2f}°C")
                 self._safe_turn_off(self.relay_controller_low, channel_name="LOW")

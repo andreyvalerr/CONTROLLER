@@ -385,7 +385,9 @@ class ValveController:
         self.temperature_regulator.update_config(
             RegulatorConfig(
                 temperature_config=self.config.temperature_config,
-                safety_config=self.config.safety_config
+                safety_config=self.config.safety_config,
+                max_temperature=max_temp,
+                min_temperature=min_temp
             )
         )
         
