@@ -34,8 +34,8 @@ class RegulatorConfig:
     temperature_config: TemperatureConfig
     safety_config: SafetyConfig
     # Пороги температуры (получаются из data_manager)
-    min_temperature: float = 47.0  # По умолчанию, будет обновлено из data_manager
-    max_temperature: float = 55.0  # По умолчанию, будет обновлено из data_manager
+    min_temperature: float | None = None  # Значение обязано прийти из data_manager
+    max_temperature: float | None = None  # Значение обязано прийти из data_manager
     # Параметры предиктивного алгоритма
     predictive_lookahead_s: float = 5.0          # горизонт прогноза, сек
     predictive_min_rate_c_per_s: float = 0.05    # минимальная скорость изменения T для предиктивных действий
@@ -137,6 +137,11 @@ class TemperatureRegulator:
             return False
         
         try:
+            # Перед запуском — гарантируем наличие уставок из data_manager
+            self._check_and_update_temperature_settings()
+            if self.config.max_temperature is None or self.config.min_temperature is None:
+                self.logger.error("Уставки не заданы (min/max отсутствуют). Ожидание обновления из data_manager...")
+                return False
             self._running = True
             self._stop_event.clear()
             self.state = RegulatorState.RUNNING
@@ -185,6 +190,11 @@ class TemperatureRegulator:
             try:
                 # Периодическая проверка обновлений настроек температуры
                 self._check_and_update_temperature_settings()
+                if self.config.max_temperature is None or self.config.min_temperature is None:
+                    # Уставок нет — ничего не делаем, ждём корректных значений
+                    self.logger.error("Уставки недоступны. Регуляция приостановлена до получения уставок из data_manager")
+                    self._stop_event.wait(self.config.temperature_config.control_interval)
+                    continue
                 
                 # Получение температуры
                 temperature = self._get_temperature_safe()
@@ -240,8 +250,8 @@ class TemperatureRegulator:
         # Состояния и пороги
         high_active = self.relay_controller.get_relay_state()
         low_active = self.relay_controller_low.get_relay_state() if self.relay_controller_low is not None else False
-        max_temp = self.config.max_temperature
-        min_temp = self.config.min_temperature
+        max_temp = float(self.config.max_temperature)
+        min_temp = float(self.config.min_temperature)
         hysteresis = self.config.temperature_config.hysteresis if self.config and self.config.temperature_config else 0.1
         
         # Подробное логирование для диагностики
@@ -292,8 +302,8 @@ class TemperatureRegulator:
         # Текущее состояние и базовые пороги
         high_active = self.relay_controller.get_relay_state()
         low_active = self.relay_controller_low.get_relay_state() if self.relay_controller_low is not None else False
-        max_temp = self.config.max_temperature
-        min_temp = self.config.min_temperature
+        max_temp = float(self.config.max_temperature)
+        min_temp = float(self.config.min_temperature)
         hysteresis = self.config.temperature_config.hysteresis if self.config and self.config.temperature_config else 0.1
 
         # Параметры предиктивного алгоритма

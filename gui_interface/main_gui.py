@@ -119,9 +119,9 @@ class TemperatureCard(BoxLayout):
             self.temp_label.text = f'{current_temp:.1f}°C'
             
             # Определение цвета в зависимости от диапазона
-            if temp_settings:
-                min_temp = temp_settings.get('min_temperature', 45.0)
-                max_temp = temp_settings.get('max_temperature', 55.0)
+            if temp_settings and 'min_temperature' in temp_settings and 'max_temperature' in temp_settings:
+                min_temp = float(temp_settings['min_temperature'])
+                max_temp = float(temp_settings['max_temperature'])
                 
                 if current_temp > max_temp:
                     self.temp_label.color = (1, 0.4, 0.4, 1)  # Красный - выше максимума
@@ -136,9 +136,9 @@ class TemperatureCard(BoxLayout):
             self.temp_label.color = (0.6, 0.6, 0.6, 1)
         
         # Обновление целевой температуры
-        if temp_settings:
-            min_temp = temp_settings.get('min_temperature', 45.0)
-            max_temp = temp_settings.get('max_temperature', 55.0)
+        if temp_settings and 'min_temperature' in temp_settings and 'max_temperature' in temp_settings:
+            min_temp = float(temp_settings['min_temperature'])
+            max_temp = float(temp_settings['max_temperature'])
             self.range_label.text = f'Целевая температура: {min_temp:.1f}°C - {max_temp:.1f}°C'
         else:
             self.range_label.text = 'Целевая температура: не настроена'

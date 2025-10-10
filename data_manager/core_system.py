@@ -340,11 +340,10 @@ class CoreSystem:
         try:
             # Проверяем, существует ли файл настроек
             settings_info = self.settings_manager.get_settings_file_info()
-            
+
             if not settings_info["exists"]:
-                # Если файл не существует, создаем его из defaults
-                print("Файл настроек не найден, создаю из defaults...")
-                self.settings_manager.copy_defaults_to_settings()
+                # Жёсткое требование наличия gui_settings.json
+                raise RuntimeError("gui_settings.json отсутствует — система не может быть запущена")
             
             # Загружаем настройки
             settings = self.settings_manager.load_settings()
@@ -418,6 +417,8 @@ class CoreSystem:
             
         except Exception as e:
             self._log_error(f"Ошибка при загрузке настроек температуры: {e}")
+            # Прерываем инициализацию при ошибках настроек
+            raise
     
     def save_current_settings(self) -> bool:
         """
@@ -525,8 +526,14 @@ def start_core_system(temperature_ip: str = "192.168.0.127",
         if _global_core_system is not None:
             return True  # Уже запущено
         
-        _global_core_system = CoreSystem(temperature_ip, temperature_update_interval)
-        return _global_core_system.start()
+        try:
+            _global_core_system = CoreSystem(temperature_ip, temperature_update_interval)
+            return _global_core_system.start()
+        except Exception as e:
+            # Сообщаем и возвращаем False, чтобы не запускать систему без валидных настроек
+            print(f"Критическая ошибка старта core_system: {e}")
+            _global_core_system = None
+            return False
 
 
 def stop_core_system():
@@ -584,6 +591,12 @@ def set_temperature_settings(max_temp: float, min_temp: float, source_module: st
     if not _global_core_system:
         return False
     
+    # Разрешаем изменять уставки только из GUI
+    allowed_sources = {"gui_interface"}
+    if str(source_module).strip().lower() not in allowed_sources:
+        print("Ошибка: Изменение уставок разрешено только из GUI (main_gui.py)")
+        return False
+
     # Валидация настроек перед установкой
     temp_settings = {"min_temp": min_temp, "max_temp": max_temp}
     if not _global_core_system.settings_manager.validate_settings(temp_settings):

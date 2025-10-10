@@ -530,36 +530,9 @@ def get_temperature_settings_for_valve_controller() -> Optional[dict]:
 
 
 def set_temperature_settings_from_valve_controller(max_temp: float, min_temp: float) -> bool:
-    """
-    Установка настроек температуры в data_manager из valve_controller
-    
-    Args:
-        max_temp: Максимальная температура
-        min_temp: Минимальная температура
-        
-    Returns:
-        bool: True если настройки успешно установлены
-    """
-    if not DATA_MANAGER_AVAILABLE:
-        print("ОШИБКА: data_manager недоступен. Невозможно установить настройки температуры.")
-        return False
-    
-    # Валидация настроек
-    if min_temp >= max_temp:
-        print(f"ОШИБКА: Некорректные настройки температуры: min_temp ({min_temp}) >= max_temp ({max_temp})")
-        return False
-    
-    try:
-        from data_manager.core_system import set_temperature_settings
-        result = set_temperature_settings(max_temp, min_temp, "valve_controller")
-        
-        if not result:
-            print("ОШИБКА: Не удалось установить настройки температуры в data_manager")
-            
-        return result
-    except Exception as e:
-        print(f"ОШИБКА установки настроек температуры: {e}")
-        return False
+    """Отключено: изменение уставок из valve_controller запрещено по политике SSOT."""
+    print("[valve_control] Изменение уставок запрещено: используйте GUI для изменения gui_settings.json")
+    return False
 
 
 def is_temperature_settings_available() -> bool:

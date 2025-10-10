@@ -49,8 +49,11 @@ class SettingsManager:
             bool: True если сохранение успешно
         """
         try:
-            # Валидация температурных настроек (ожидается, что min/max будут переданы)
-            if not self.validate_settings(settings_dict):
+            # Валидация температурных настроек (обязательны min_temp и max_temp, без дефолтов)
+            if not isinstance(settings_dict, dict) or "min_temp" not in settings_dict or "max_temp" not in settings_dict:
+                self._log_error("Отсутствуют обязательные поля min_temp/max_temp для сохранения")
+                return False
+            if not self.validate_settings({"min_temp": settings_dict["min_temp"], "max_temp": settings_dict["max_temp"]}):
                 self._log_error("Настройки не прошли валидацию, сохранение отменено")
                 return False
 
@@ -75,8 +78,8 @@ class SettingsManager:
                 "version": "1.0",
                 "last_updated": datetime.now().isoformat(),
                 "temperature_settings": {
-                    "min_temp": settings_dict.get("min_temp", 45.0),
-                    "max_temp": settings_dict.get("max_temp", 55.0)
+                    "min_temp": settings_dict["min_temp"],
+                    "max_temp": settings_dict["max_temp"]
                 },
                 "metadata": {
                     "device_id": "raspberry_pi_01",
@@ -201,33 +204,28 @@ class SettingsManager:
                 self._log_error(f"Недопустимое значение режима: {mode_value}")
                 return False
 
-            # Подготовка данных: загружаем существующие либо базовую структуру
-            data: Dict[str, Any]
-            if self.settings_file.exists():
-                try:
-                    with open(self.settings_file, 'r', encoding='utf-8') as f:
-                        loaded = json.load(f)
-                        data = loaded if isinstance(loaded, dict) else {}
-                except Exception:
-                    data = {}
-            else:
-                # Если нет файла, создаем от defaults
-                if self.defaults_file.exists():
-                    with open(self.defaults_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        if not isinstance(data, dict):
-                            data = {}
-                else:
-                    data = {}
+            # Подготовка данных: изменяем только существующий файл, без автосоздания и дефолтов
+            if not self.settings_file.exists():
+                self._log_error("Невозможно сохранить режим: файл gui_settings.json отсутствует")
+                return False
+            try:
+                with open(self.settings_file, 'r', encoding='utf-8') as f:
+                    loaded = json.load(f)
+                    data: Dict[str, Any] = loaded if isinstance(loaded, dict) else {}
+            except Exception:
+                data = {}
 
-            # Базовые поля по умолчанию
+            if not isinstance(data, dict) or "temperature_settings" not in data:
+                self._log_error("Невозможно сохранить режим: некорректная структура gui_settings.json")
+                return False
+
             data.setdefault("version", "1.0")
             data["last_updated"] = datetime.now().isoformat()
-            data.setdefault("temperature_settings", {"min_temp": 45.0, "max_temp": 55.0})
-            data.setdefault("metadata", {})
-            data["metadata"]["device_id"] = data.get("metadata", {}).get("device_id", "raspberry_pi_01")
+            if "metadata" not in data or not isinstance(data["metadata"], dict):
+                data["metadata"] = {}
+            data["metadata"]["device_id"] = data["metadata"].get("device_id", "raspberry_pi_01")
             data["metadata"]["created_by"] = "settings_manager"
-            data["metadata"]["backup_count"] = data.get("metadata", {}).get("backup_count", 3)
+            data["metadata"]["backup_count"] = data["metadata"].get("backup_count", 3)
             data["metadata"]["source"] = "mode_update"
 
             # Обновляем режим
@@ -258,26 +256,15 @@ class SettingsManager:
             bool: True если успешно сохранен
         """
         try:
-            # Загружаем существующий файл или создаем базовую структуру
-            if self.settings_file.exists():
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                if not isinstance(data, dict):
-                    data = {}
-            else:
-                data = {
-                    "version": "1.0",
-                    "temperature_settings": {
-                        "min_temp": 45.0,
-                        "max_temp": 55.0
-                    },
-                    "metadata": {
-                        "device_id": "raspberry_pi_01",
-                        "created_by": "settings_manager",
-                        "backup_count": 3,
-                        "source": "ip_update"
-                    }
-                }
+            # Обновляем только существующий файл, без автосоздания
+            if not self.settings_file.exists():
+                self._log_error("Невозможно сохранить IP: файл gui_settings.json отсутствует")
+                return False
+            with open(self.settings_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or "temperature_settings" not in data:
+                self._log_error("Невозможно сохранить IP: некорректная структура gui_settings.json")
+                return False
 
             # Обновляем поля
             data["ip_address_asic"] = ip_address
@@ -330,26 +317,15 @@ class SettingsManager:
             bool: True если успешно сохранено
         """
         try:
-            # Загружаем существующий файл или создаем базовую структуру
-            if self.settings_file.exists():
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                if not isinstance(data, dict):
-                    data = {}
-            else:
-                data = {
-                    "version": "1.0",
-                    "temperature_settings": {
-                        "min_temp": 45.0,
-                        "max_temp": 55.0
-                    },
-                    "metadata": {
-                        "device_id": "raspberry_pi_01",
-                        "created_by": "settings_manager",
-                        "backup_count": 3,
-                        "source": "cooling_update"
-                    }
-                }
+            # Обновляем только существующий файл, без автосоздания
+            if not self.settings_file.exists():
+                self._log_error("Невозможно сохранить состояние охлаждения: файл gui_settings.json отсутствует")
+                return False
+            with open(self.settings_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or "temperature_settings" not in data:
+                self._log_error("Невозможно сохранить состояние охлаждения: некорректная структура gui_settings.json")
+                return False
 
             # Обновляем поля
             data["cooling_settings"] = {"cooling_on": bool(cooling_on)}
