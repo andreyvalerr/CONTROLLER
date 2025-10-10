@@ -9,13 +9,10 @@ import sys
 import time
 import threading
 from datetime import datetime
-from collections import deque
+from logs.rolling_log import start_rolling_logger, stop_rolling_logger
 
 # Глобальная переменная для valve controller
 valve_controller_instance = None
-_rolling_log_thread = None
-_rolling_log_stop = threading.Event()
-_rolling_log_buffer = deque(maxlen=120)
 
 # Добавляем пути к модулям
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -140,134 +137,7 @@ def start_valve_control():
         print(f"❌ Ошибка при запуске valve_control: {e}")
         return False
 
-def _ensure_logs_dir() -> str:
-    """Гарантированно создаёт директорию логов и возвращает путь."""
-    logs_dir = os.path.join(current_dir, 'logs')
-    try:
-        os.makedirs(logs_dir, exist_ok=True)
-    except Exception:
-        pass
-    return logs_dir
 
-def _get_snapshot_line() -> str:
-    """Формирует строку: "HH:MM:SS, уставка 45.0-55.0, текущая темп. 49.6, охл. ВКЛ., нагр. ВЫКЛ.""" 
-    ts = datetime.now().strftime('%H:%M:%S')
-    temp = None
-    upper_on = None
-    lower_on = None
-    set_min = None
-    set_max = None
-
-    try:
-        # Температура: сначала пробуем через valve_controller_instance (быстрее и синхронно)
-        global valve_controller_instance
-        if valve_controller_instance is not None and valve_controller_instance.is_running():
-            try:
-                temp = valve_controller_instance.get_current_temperature()
-            except Exception:
-                temp = None
-        else:
-            # Резерв: берём температуру из data_manager
-            try:
-                from data_manager.core_system import get_temperature_data
-                temp = get_temperature_data()
-            except Exception:
-                temp = None
-        # Уставки стараемся взять из работающего регулятора
-        try:
-            if valve_controller_instance is not None and valve_controller_instance.is_running():
-                cfg = valve_controller_instance.temperature_regulator.config
-                set_min = getattr(cfg, 'min_temperature', None)
-                set_max = getattr(cfg, 'max_temperature', None)
-        except Exception:
-            set_min = None
-            set_max = None
-        # Если нет уставок из контроллера — берём из data_manager
-        if set_min is None or set_max is None:
-            try:
-                from data_manager.core_system import get_temperature_settings
-                settings = get_temperature_settings()
-                if settings:
-                    set_min = settings.get('min_temperature', set_min)
-                    set_max = settings.get('max_temperature', set_max)
-            except Exception:
-                pass
-        # Состояние клапанов берём только из core_system
-        try:
-            from data_manager.core_system import get_valve_position
-            valves = get_valve_position()
-            if isinstance(valves, dict):
-                if 'upper' in valves:
-                    upper_on = bool(valves.get('upper'))
-                if 'lower' in valves:
-                    lower_on = bool(valves.get('lower'))
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-    # Человекочитаемая строка
-    if temp is None:
-        temp_part = "текущая темп. н/д"
-    else:
-        temp_part = f"текущая темп. {float(temp):.1f}"
-    if set_min is not None and set_max is not None:
-        set_part = f"уставка {float(set_min):.1f}-{float(set_max):.1f}"
-    else:
-        set_part = "уставка н/д"
-    cooling_part = "охл. н/д" if upper_on is None else f"охл. {'ВКЛ.' if bool(upper_on) else 'ВЫКЛ.'}"
-    heating_part = "нагр. н/д" if lower_on is None else f"нагр. {'ВКЛ.' if bool(lower_on) else 'ВЫКЛ.'}"
-    return f"{ts}, {set_part}, {temp_part}, {cooling_part}, {heating_part}"
-
-def _write_rolling_snapshot(lines: list[str]):
-    """Атомарно записывает снапшот из последних строк в rolling.log."""
-    logs_dir = _ensure_logs_dir()
-    target = os.path.join(logs_dir, 'rolling.log')
-    tmp = target + '.tmp'
-    try:
-        with open(tmp, 'w', encoding='utf-8') as f:
-            for line in lines:
-                f.write(line + '\n')
-        os.replace(tmp, target)
-    except Exception:
-        # В случае ошибки просто игнорируем, чтобы не тормозить основной цикл
-        try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-        except Exception:
-            pass
-
-def _rolling_logger_loop(stop_event: threading.Event):
-    """Фоновый цикл: каждую секунду добавляет запись и перезаписывает файл снапшотом."""
-    while not stop_event.is_set():
-        try:
-            line = _get_snapshot_line()
-            _rolling_log_buffer.append(line)
-            # Снимок текущего буфера
-            _write_rolling_snapshot(list(_rolling_log_buffer))
-        except Exception:
-            pass
-        # Ожидание 1 секунду с возможностью досрочной остановки
-        stop_event.wait(1.0)
-
-def start_rolling_logger():
-    """Запускает фоновый rolling-логгер (120 последних секунд)."""
-    global _rolling_log_thread, _rolling_log_stop
-    if _rolling_log_thread is not None and _rolling_log_thread.is_alive():
-        return
-    _rolling_log_stop.clear()
-    _rolling_log_thread = threading.Thread(target=_rolling_logger_loop, args=(_rolling_log_stop,), daemon=True)
-    _rolling_log_thread.start()
-
-def stop_rolling_logger():
-    """Останавливает фоновый rolling-логгер."""
-    global _rolling_log_thread, _rolling_log_stop
-    try:
-        _rolling_log_stop.set()
-        if _rolling_log_thread is not None and _rolling_log_thread.is_alive():
-            _rolling_log_thread.join(timeout=3.0)
-    except Exception:
-        pass
 
 def start_gui():
     """Запуск GUI интерфейса"""

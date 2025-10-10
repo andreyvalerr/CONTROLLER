@@ -1,9 +1,9 @@
 {
   "version": "1.0",
-  "last_updated": "2025-10-10T19:58:25.329418",
+  "last_updated": "2025-10-10T22:15:11.489451",
   "temperature_settings": {
-    "min_temp": 50.0,
-    "max_temp": 58.1
+    "min_temp": 50.1,
+    "max_temp": 56.0
   },
   "metadata": {
     "device_id": "raspberry_pi_01",
