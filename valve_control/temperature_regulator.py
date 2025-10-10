@@ -15,6 +15,7 @@ from enum import Enum
 
 from .relay_controller import RelayController
 from .config import TemperatureConfig, SafetyConfig, DEFAULT_TEMPERATURE_CONFIG, DEFAULT_SAFETY_CONFIG
+from .data_manager_integration import publish_valve_states
 
 class RegulatorState(Enum):
     """Состояния регулятора"""
@@ -464,7 +465,19 @@ class TemperatureRegulator:
                 f"BLOCK {channel_name} ON: прошло {elapsed:.1f}s < min_cycle_time {min_cycle:.1f}s"
             )
             return False
-        return controller.turn_on()
+        ok = controller.turn_on()
+        if ok:
+            try:
+                upper_on = self.relay_controller.get_relay_state()
+                lower_on = self.relay_controller_low.get_relay_state() if self.relay_controller_low is not None else False
+                publish_valve_states(upper_on=upper_on, lower_on=lower_on, metadata={
+                    "source": "regulator",
+                    "channel": channel_name,
+                    "action": "on"
+                })
+            except Exception:
+                pass
+        return ok
 
     def _safe_turn_off(self, controller: RelayController, channel_name: str = "") -> bool:
         allowed, elapsed, min_cycle = self._can_switch_now(controller)
@@ -473,7 +486,19 @@ class TemperatureRegulator:
                 f"BLOCK {channel_name} OFF: прошло {elapsed:.1f}s < min_cycle_time {min_cycle:.1f}s"
             )
             return False
-        return controller.turn_off()
+        ok = controller.turn_off()
+        if ok:
+            try:
+                upper_on = self.relay_controller.get_relay_state()
+                lower_on = self.relay_controller_low.get_relay_state() if self.relay_controller_low is not None else False
+                publish_valve_states(upper_on=upper_on, lower_on=lower_on, metadata={
+                    "source": "regulator",
+                    "channel": channel_name,
+                    "action": "off"
+                })
+            except Exception:
+                pass
+        return ok
 
     def _update_temperature_history(self, timestamp: datetime, temperature: float) -> None:
         """Добавляет точку в историю температур."""

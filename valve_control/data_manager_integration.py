@@ -15,7 +15,11 @@ from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from data_manager.core_system import get_temperature_data, get_core_instance
+    from data_manager.core_system import (
+        get_temperature_data,
+        get_core_instance,
+        set_valve_position,
+    )
     from data_manager.data_manager import DataType
     DATA_MANAGER_AVAILABLE = True
 except ImportError as e:
@@ -501,6 +505,18 @@ def get_temperature_provider_statistics() -> dict:
             }
         
         return _global_temperature_provider.get_statistics()
+
+
+def publish_valve_states(upper_on: bool, lower_on: bool, metadata: Optional[dict] = None) -> bool:
+    """
+    Публикация фактических состояний каналов клапанов в DataManager.
+    Используется модулями valve_control после каждого изменения реле.
+    """
+    try:
+        return set_valve_position(upper_on=bool(upper_on), lower_on=bool(lower_on), metadata=metadata or {})
+    except Exception as e:
+        print(f"[valve_control] Не удалось опубликовать состояние клапанов: {e}")
+        return False
 
 
 # Новые функции для работы с настройками температуры

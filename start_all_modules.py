@@ -153,8 +153,8 @@ def _get_snapshot_line() -> str:
     """Формирует строку: "HH:MM:SS, уставка 45.0-55.0, текущая темп. 49.6, охл. ВКЛ., нагр. ВЫКЛ.""" 
     ts = datetime.now().strftime('%H:%M:%S')
     temp = None
-    upper_on = False
-    lower_on = False
+    upper_on = None
+    lower_on = None
     set_min = None
     set_max = None
 
@@ -166,15 +166,6 @@ def _get_snapshot_line() -> str:
                 temp = valve_controller_instance.get_current_temperature()
             except Exception:
                 temp = None
-
-            try:
-                upper_on = bool(valve_controller_instance.relay_controller.get_relay_state())
-            except Exception:
-                upper_on = False
-            try:
-                lower_on = bool(valve_controller_instance.relay_controller_low.get_relay_state())
-            except Exception:
-                lower_on = False
         else:
             # Резерв: берём температуру из data_manager
             try:
@@ -182,9 +173,6 @@ def _get_snapshot_line() -> str:
                 temp = get_temperature_data()
             except Exception:
                 temp = None
-            # Если контроллер не активен, считаем клапаны выключенными
-            upper_on = False
-            lower_on = False
         # Уставки стараемся взять из работающего регулятора
         try:
             if valve_controller_instance is not None and valve_controller_instance.is_running():
@@ -204,6 +192,17 @@ def _get_snapshot_line() -> str:
                     set_max = settings.get('max_temperature', set_max)
             except Exception:
                 pass
+        # Состояние клапанов берём только из core_system
+        try:
+            from data_manager.core_system import get_valve_position
+            valves = get_valve_position()
+            if isinstance(valves, dict):
+                if 'upper' in valves:
+                    upper_on = bool(valves.get('upper'))
+                if 'lower' in valves:
+                    lower_on = bool(valves.get('lower'))
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -216,8 +215,8 @@ def _get_snapshot_line() -> str:
         set_part = f"уставка {float(set_min):.1f}-{float(set_max):.1f}"
     else:
         set_part = "уставка н/д"
-    cooling_part = f"охл. {'ВКЛ.' if upper_on else 'ВЫКЛ.'}"
-    heating_part = f"нагр. {'ВКЛ.' if lower_on else 'ВЫКЛ.'}"
+    cooling_part = "охл. н/д" if upper_on is None else f"охл. {'ВКЛ.' if bool(upper_on) else 'ВЫКЛ.'}"
+    heating_part = "нагр. н/д" if lower_on is None else f"нагр. {'ВКЛ.' if bool(lower_on) else 'ВЫКЛ.'}"
     return f"{ts}, {set_part}, {temp_part}, {cooling_part}, {heating_part}"
 
 def _write_rolling_snapshot(lines: list[str]):

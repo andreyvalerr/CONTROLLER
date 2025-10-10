@@ -822,3 +822,50 @@ def toggle_cooling(source_module: str = "external") -> Optional[bool]:
         # если не задано, считаем выключенным
         return set_cooling_state(True, source_module)
     return set_cooling_state(not bool(current), source_module)
+
+
+# Работа с фактическим положением клапанов (VALVE_POSITION)
+def set_valve_position(upper_on: bool, lower_on: bool, source_module: str = "valve_control", metadata: Optional[Dict[str, Any]] = None) -> bool:
+    """
+    Публикация фактического состояния клапанов (верхний/нижний каналы) в data_manager.
+
+    Args:
+        upper_on: Состояние верхнего канала (HIGH / охлаждение)
+        lower_on: Состояние нижнего канала (LOW / нагрев/закрытие)
+        source_module: Имя модуля-источника
+        metadata: Доп. метаданные (будет добавлен updated_at)
+
+    Returns:
+        bool: True если запись успешна
+    """
+    global _global_core_system
+    if not _global_core_system:
+        return False
+    try:
+        value = {
+            "upper": bool(upper_on),
+            "lower": bool(lower_on),
+        }
+        meta = dict(metadata or {})
+        meta.setdefault("updated_at", datetime.now().isoformat())
+        return _global_core_system.data_manager.set_data(
+            DataType.VALVE_POSITION,
+            value,
+            source_module,
+            meta
+        )
+    except Exception:
+        return False
+
+
+def get_valve_position() -> Optional[Dict[str, Any]]:
+    """
+    Получение последнего опубликованного фактического состояния клапанов из data_manager.
+
+    Returns:
+        Optional[Dict[str, Any]]: {"upper": bool, "lower": bool} либо None
+    """
+    core = get_core_instance()
+    if core:
+        return core.data_manager.get_value(DataType.VALVE_POSITION)
+    return None
