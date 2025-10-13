@@ -9,6 +9,7 @@ import sys
 import time
 import threading
 from datetime import datetime
+from logs.rolling_log import start_rolling_logger, stop_rolling_logger
 
 # Глобальная переменная для valve controller
 valve_controller_instance = None
@@ -136,6 +137,8 @@ def start_valve_control():
         print(f"❌ Ошибка при запуске valve_control: {e}")
         return False
 
+
+
 def start_gui():
     """Запуск GUI интерфейса"""
     try:
@@ -151,35 +154,9 @@ def start_gui():
         return False
 
 def setup_temperature_settings():
-    """Установка базовых настроек температуры если их нет"""
-    try:
-        from data_manager.core_system import (
-            is_temperature_settings_available,
-            set_temperature_settings,
-            get_temperature_settings
-        )
-        
-        if not is_temperature_settings_available():
-            print("[НАСТРОЙКА] Устанавливаю настройки температуры по умолчанию...")
-            success = set_temperature_settings(
-                max_temp=55.0,
-                min_temp=45.0,
-                source_module="startup_script"
-            )
-            if success:
-                print("✅ Настройки температуры установлены: 45.0°C - 55.0°C")
-            else:
-                print("❌ Не удалось установить настройки температуры")
-                return False
-        else:
-            settings = get_temperature_settings()
-            print(f"✅ Настройки температуры: {settings['min_temperature']:.1f}°C - {settings['max_temperature']:.1f}°C")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Ошибка при настройке температуры: {e}")
-        return False
+    """Удалено: настроек по умолчанию больше нет. Оставлено для совместимости, возвращает False."""
+    print("⚠️ setup_temperature_settings() больше не используется: уставки задаются только через GUI и gui_settings.json")
+    return False
 
 def main():
     """Главная функция запуска системы"""
@@ -202,12 +179,9 @@ def main():
         print("❌ Система не может работать без data_manager")
         return 1
     
-    # 2. Настройка температурных параметров
-    if setup_temperature_settings():
-        time.sleep(1)
-    else:
-        print("⚠️ ПРЕДУПРЕЖДЕНИЕ: Проблемы с настройками температуры")
-        print("⚠️ Система может работать некорректно")
+    # 2. Настройка температурных параметров удалена — уставки только из gui_settings.json
+    if True:
+        pass
     
     # 3. Запуск valve_control
     if start_valve_control():
@@ -234,7 +208,14 @@ def main():
     print("=" * 50)
     print()
     
-    # 4. Запуск GUI (блокирующий)
+    # 4. Запуск rolling-логгера (буфер 120 секунд)
+    try:
+        start_rolling_logger()
+        print("✅ Rolling логгер запущен (logs/rolling.log)")
+    except Exception as e:
+        print(f"⚠️ Не удалось запустить rolling логгер: {e}")
+    
+    # 5. Запуск GUI (блокирующий)
     try:
         start_gui()
     except KeyboardInterrupt:
@@ -273,6 +254,13 @@ def main():
         stop_mode_cooling_listener()
         print("✅ Valve Control listener режима/охлаждения остановлен")
     except:
+        pass
+    
+    # Остановка rolling-логгера
+    try:
+        stop_rolling_logger()
+        print("✅ Rolling логгер остановлен")
+    except Exception:
         pass
     
     print("✅ Система остановлена")

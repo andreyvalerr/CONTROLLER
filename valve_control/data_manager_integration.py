@@ -15,7 +15,11 @@ from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from data_manager.core_system import get_temperature_data, get_core_instance
+    from data_manager.core_system import (
+        get_temperature_data,
+        get_core_instance,
+        set_valve_position,
+    )
     from data_manager.data_manager import DataType
     DATA_MANAGER_AVAILABLE = True
 except ImportError as e:
@@ -244,15 +248,17 @@ def set_manual_mode() -> bool:
         return False
 
 
-def set_auto_mode() -> bool:
-    """Переводит контроллер в автоматический режим (возобновляет регулятор)."""
+def set_auto_mode(algorithm: object = None) -> bool:
+    """Переводит контроллер в автоматический режим (возобновляет регулятор).
+    Можно указать алгоритм: 'predictive' | 'hysteresis' (или Enum).
+    """
     global _is_manual_mode
     controller = _get_controller()
     if controller is None:
         print("[valve_control] Невозможно включить авто режим: контроллер не зарегистрирован")
         return False
     try:
-        ok = controller.resume_automatic_control()
+        ok = controller.resume_automatic_control(algorithm)
         if ok:
             _is_manual_mode = False
         return ok
@@ -296,7 +302,8 @@ def start_mode_cooling_listener() -> bool:
                 if mode_val == "manual":
                     set_manual_mode()
                 elif mode_val in ("auto", "predictive"):
-                    set_auto_mode()
+                    alg = "predictive" if mode_val == "predictive" else "hysteresis"
+                    set_auto_mode(alg)
             except Exception as e:
                 print(f"[valve_control] Ошибка обработчика MODE: {e}")
 
@@ -410,7 +417,10 @@ def initialize_mode_from_settings() -> bool:
         sm = get_settings_manager()
         mode = sm.load_mode()
         saved_cooling = sm.load_cooling_state()
-        if isinstance(mode, str) and mode.lower() == 'manual':
+        mv = None
+        if isinstance(mode, str):
+            mv = mode.strip().lower()
+        if mv == 'manual':
             ok = set_manual_mode()
             # Если удалось перейти в ручной режим и есть сохранённое состояние — применим его
             if ok and isinstance(saved_cooling, bool):
@@ -421,7 +431,8 @@ def initialize_mode_from_settings() -> bool:
                     pass
             return ok
         else:
-            return set_auto_mode()
+            alg = 'predictive' if mv == 'predictive' else 'hysteresis'
+            return set_auto_mode(alg)
     except Exception as e:
         print(f"[valve_control] Не удалось инициализировать режим из настроек: {e}")
         return False
@@ -496,6 +507,18 @@ def get_temperature_provider_statistics() -> dict:
         return _global_temperature_provider.get_statistics()
 
 
+def publish_valve_states(upper_on: bool, lower_on: bool, metadata: Optional[dict] = None) -> bool:
+    """
+    Публикация фактических состояний каналов клапанов в DataManager.
+    Используется модулями valve_control после каждого изменения реле.
+    """
+    try:
+        return set_valve_position(upper_on=bool(upper_on), lower_on=bool(lower_on), metadata=metadata or {})
+    except Exception as e:
+        print(f"[valve_control] Не удалось опубликовать состояние клапанов: {e}")
+        return False
+
+
 # Новые функции для работы с настройками температуры
 def get_temperature_settings_for_valve_controller() -> Optional[dict]:
     """
@@ -523,36 +546,9 @@ def get_temperature_settings_for_valve_controller() -> Optional[dict]:
 
 
 def set_temperature_settings_from_valve_controller(max_temp: float, min_temp: float) -> bool:
-    """
-    Установка настроек температуры в data_manager из valve_controller
-    
-    Args:
-        max_temp: Максимальная температура
-        min_temp: Минимальная температура
-        
-    Returns:
-        bool: True если настройки успешно установлены
-    """
-    if not DATA_MANAGER_AVAILABLE:
-        print("ОШИБКА: data_manager недоступен. Невозможно установить настройки температуры.")
-        return False
-    
-    # Валидация настроек
-    if min_temp >= max_temp:
-        print(f"ОШИБКА: Некорректные настройки температуры: min_temp ({min_temp}) >= max_temp ({max_temp})")
-        return False
-    
-    try:
-        from data_manager.core_system import set_temperature_settings
-        result = set_temperature_settings(max_temp, min_temp, "valve_controller")
-        
-        if not result:
-            print("ОШИБКА: Не удалось установить настройки температуры в data_manager")
-            
-        return result
-    except Exception as e:
-        print(f"ОШИБКА установки настроек температуры: {e}")
-        return False
+    """Отключено: изменение уставок из valve_controller запрещено по политике SSOT."""
+    print("[valve_control] Изменение уставок запрещено: используйте GUI для изменения gui_settings.json")
+    return False
 
 
 def is_temperature_settings_available() -> bool:

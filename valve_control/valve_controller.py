@@ -11,7 +11,7 @@ from typing import Optional, Callable
 from dataclasses import dataclass
 
 from .relay_controller import RelayController
-from .temperature_regulator import TemperatureRegulator, RegulatorConfig
+from .temperature_regulator import TemperatureRegulator, RegulatorConfig, RegulatorAlgorithm
 from .config import (
     RelayConfig, TemperatureConfig, MonitoringConfig, SafetyConfig,
     load_config_from_env, validate_config
@@ -20,7 +20,8 @@ from .data_manager_integration import (
     get_temperature_settings_for_valve_controller,
     set_temperature_settings_from_valve_controller,
     is_temperature_settings_available,
-    validate_data_manager_availability
+    validate_data_manager_availability,
+    publish_valve_states
 )
 
 @dataclass
@@ -273,6 +274,15 @@ class ValveController:
         result = self.relay_controller.turn_on()
         if result:
             self.logger.info("Ручное включение охлаждения")
+            try:
+                upper_on = self.relay_controller.get_relay_state()
+                lower_on = self.relay_controller_low.get_relay_state() if self.relay_controller_low is not None else False
+                publish_valve_states(upper_on=upper_on, lower_on=lower_on, metadata={
+                    "source": "manual",
+                    "action": "on"
+                })
+            except Exception:
+                pass
         
         return result
     
@@ -294,10 +304,19 @@ class ValveController:
         result = self.relay_controller.turn_off()
         if result:
             self.logger.info("Ручное выключение охлаждения")
+            try:
+                upper_on = self.relay_controller.get_relay_state()
+                lower_on = self.relay_controller_low.get_relay_state() if self.relay_controller_low is not None else False
+                publish_valve_states(upper_on=upper_on, lower_on=lower_on, metadata={
+                    "source": "manual",
+                    "action": "off"
+                })
+            except Exception:
+                pass
         
         return result
     
-    def resume_automatic_control(self) -> bool:
+    def resume_automatic_control(self, algorithm: object = None) -> bool:
         """
         Возобновление автоматического управления
         
@@ -307,6 +326,14 @@ class ValveController:
         if not self._is_running:
             self.logger.error("Контроллер не запущен")
             return False
+        
+        # Установка алгоритма при необходимости
+        try:
+            if algorithm is not None:
+                # Разрешаем передавать строку ('predictive'|'hysteresis') или Enum
+                self.temperature_regulator.set_algorithm(algorithm)
+        except Exception as e:
+            self.logger.error(f"Ошибка установки алгоритма регулирования: {e}")
         
         # Запуск регулятора температуры
         result = self.temperature_regulator.start()
@@ -377,7 +404,9 @@ class ValveController:
         self.temperature_regulator.update_config(
             RegulatorConfig(
                 temperature_config=self.config.temperature_config,
-                safety_config=self.config.safety_config
+                safety_config=self.config.safety_config,
+                max_temperature=max_temp,
+                min_temperature=min_temp
             )
         )
         

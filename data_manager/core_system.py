@@ -340,11 +340,10 @@ class CoreSystem:
         try:
             # Проверяем, существует ли файл настроек
             settings_info = self.settings_manager.get_settings_file_info()
-            
+
             if not settings_info["exists"]:
-                # Если файл не существует, создаем его из defaults
-                print("Файл настроек не найден, создаю из defaults...")
-                self.settings_manager.copy_defaults_to_settings()
+                # Жёсткое требование наличия gui_settings.json
+                raise RuntimeError("gui_settings.json отсутствует — система не может быть запущена")
             
             # Загружаем настройки
             settings = self.settings_manager.load_settings()
@@ -418,6 +417,8 @@ class CoreSystem:
             
         except Exception as e:
             self._log_error(f"Ошибка при загрузке настроек температуры: {e}")
+            # Прерываем инициализацию при ошибках настроек
+            raise
     
     def save_current_settings(self) -> bool:
         """
@@ -525,8 +526,14 @@ def start_core_system(temperature_ip: str = "192.168.0.127",
         if _global_core_system is not None:
             return True  # Уже запущено
         
-        _global_core_system = CoreSystem(temperature_ip, temperature_update_interval)
-        return _global_core_system.start()
+        try:
+            _global_core_system = CoreSystem(temperature_ip, temperature_update_interval)
+            return _global_core_system.start()
+        except Exception as e:
+            # Сообщаем и возвращаем False, чтобы не запускать систему без валидных настроек
+            print(f"Критическая ошибка старта core_system: {e}")
+            _global_core_system = None
+            return False
 
 
 def stop_core_system():
@@ -584,6 +591,12 @@ def set_temperature_settings(max_temp: float, min_temp: float, source_module: st
     if not _global_core_system:
         return False
     
+    # Разрешаем изменять уставки только из GUI
+    allowed_sources = {"gui_interface"}
+    if str(source_module).strip().lower() not in allowed_sources:
+        print("Ошибка: Изменение уставок разрешено только из GUI (main_gui.py)")
+        return False
+
     # Валидация настроек перед установкой
     temp_settings = {"min_temp": min_temp, "max_temp": max_temp}
     if not _global_core_system.settings_manager.validate_settings(temp_settings):
@@ -809,3 +822,50 @@ def toggle_cooling(source_module: str = "external") -> Optional[bool]:
         # если не задано, считаем выключенным
         return set_cooling_state(True, source_module)
     return set_cooling_state(not bool(current), source_module)
+
+
+# Работа с фактическим положением клапанов (VALVE_POSITION)
+def set_valve_position(upper_on: bool, lower_on: bool, source_module: str = "valve_control", metadata: Optional[Dict[str, Any]] = None) -> bool:
+    """
+    Публикация фактического состояния клапанов (верхний/нижний каналы) в data_manager.
+
+    Args:
+        upper_on: Состояние верхнего канала (HIGH / охлаждение)
+        lower_on: Состояние нижнего канала (LOW / нагрев/закрытие)
+        source_module: Имя модуля-источника
+        metadata: Доп. метаданные (будет добавлен updated_at)
+
+    Returns:
+        bool: True если запись успешна
+    """
+    global _global_core_system
+    if not _global_core_system:
+        return False
+    try:
+        value = {
+            "upper": bool(upper_on),
+            "lower": bool(lower_on),
+        }
+        meta = dict(metadata or {})
+        meta.setdefault("updated_at", datetime.now().isoformat())
+        return _global_core_system.data_manager.set_data(
+            DataType.VALVE_POSITION,
+            value,
+            source_module,
+            meta
+        )
+    except Exception:
+        return False
+
+
+def get_valve_position() -> Optional[Dict[str, Any]]:
+    """
+    Получение последнего опубликованного фактического состояния клапанов из data_manager.
+
+    Returns:
+        Optional[Dict[str, Any]]: {"upper": bool, "lower": bool} либо None
+    """
+    core = get_core_instance()
+    if core:
+        return core.data_manager.get_value(DataType.VALVE_POSITION)
+    return None
